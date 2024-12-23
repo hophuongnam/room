@@ -1,0 +1,7 @@
+source 'https://rubygems.org'
+gem 'sinatra'
+gem 'google-api-client'
+gem 'jwt'
+gem 'sqlite3'
+gem 'sinatra-contrib'
+gem 'dotenv'
