@@ -1,9 +1,19 @@
+/* Define CSS Variables for consistent theme */
+:root {
+    --primary-color: #007bff;
+    --secondary-color: #6c757d;
+    --danger-color: #dc3545;
+    --background-color: #f8f9fa;
+    --box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    --border-radius: 8px;
+}
+
 /* General body styling */
 body {
     font-family: Arial, sans-serif;
     margin: 0;
     padding: 0;
-    background-color: #f8f9fa;
+    background-color: var(--background-color);
 }
 
 /* Calendar styling */
@@ -12,8 +22,8 @@ body {
     margin: 20px auto;
     background: white;
     border: 1px solid #ddd;
-    border-radius: 8px;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    border-radius: var(--border-radius);
+    box-shadow: var(--box-shadow);
     padding: 15px;
 }
 
@@ -31,7 +41,7 @@ body {
     z-index: 1000;
     background: white;
     border: 1px solid #ddd;
-    border-radius: 8px;
+    border-radius: var(--border-radius);
     box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
     padding: 15px;
     min-width: 300px;
@@ -42,14 +52,25 @@ body {
 /* Popup title styling */
 #popupContent #popupTitle {
     margin: 0 0 10px;
-    font-size: 22px; /* Slightly larger font size */
+    font-size: 22px;
     font-weight: bold;
-    color: #ffffff; /* White text for contrast */
-    text-align: center; /* Center the title */
-    background-color: #007bff; /* Blue background for distinction */
-    padding: 10px; /* Padding for a cleaner appearance */
-    border-radius: 5px; /* Rounded corners for modern design */
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); /* Subtle shadow for depth */
+    color: #ffffff;
+    text-align: center;
+    background-color: var(--primary-color);
+    padding: 10px;
+    border-radius: 5px;
+    box-shadow: var(--box-shadow);
+}
+
+/* Popup header styling */
+#popupHeader {
+    font-size: 18px;
+    font-weight: bold;
+    color: white;
+    background-color: var(--primary-color);
+    padding: 10px;
+    border-radius: var(--border-radius);
+    text-align: center;
 }
 
 /* Popup content paragraph styling */
@@ -57,6 +78,17 @@ body {
     margin: 5px 0;
     font-size: 14px;
     color: #555;
+}
+
+/* Organizer and attendees styles */
+#popupOrganizer, #popupAttendees {
+    font-size: 14px;
+    color: #555;
+}
+
+#popupTime {
+    font-size: 12px;
+    color: #777;
 }
 
 /* Popup button group */
@@ -78,7 +110,7 @@ body {
 
 /* Primary button */
 #popupContent .btn-primary {
-    background-color: #007bff;
+    background-color: var(--primary-color);
     border: none;
     color: white;
 }
@@ -89,7 +121,7 @@ body {
 
 /* Danger button */
 #popupContent .btn-danger {
-    background-color: #dc3545;
+    background-color: var(--danger-color);
     border: none;
     color: white;
 }
@@ -100,7 +132,7 @@ body {
 
 /* Secondary button */
 #popupContent .btn-secondary {
-    background-color: #6c757d;
+    background-color: var(--secondary-color);
     border: none;
     color: white;
 }
@@ -110,11 +142,28 @@ body {
 }
 
 /* Tabs styling */
+#roomTabs {
+    margin-bottom: 20px;
+    display: flex;
+    gap: 10px;
+    position: fixed;
+    top: 0;
+    width: 100%;
+    background-color: white;
+    z-index: 1000;
+    box-shadow: var(--box-shadow);
+}
+
+#roomTabContent {
+    padding: 10px;
+    margin-top: 60px; /* Adjust for the fixed navigation bar */
+}
+
 .nav-tabs {
     margin-bottom: 15px;
     background: white;
-    border-radius: 8px;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    border-radius: var(--border-radius);
+    box-shadow: var(--box-shadow);
 }
 
 .nav-tabs .nav-item {
@@ -123,12 +172,12 @@ body {
 
 .nav-tabs .nav-link {
     border: none;
-    color: #007bff;
+    color: var(--primary-color);
     font-weight: bold;
 }
 
 .nav-tabs .nav-link.active {
-    background-color: #007bff;
+    background-color: var(--primary-color);
     color: white;
     border-radius: 4px;
 }
@@ -137,9 +186,9 @@ body {
 .tab-content {
     padding: 10px;
     border: 1px solid #ddd;
-    border-radius: 8px;
+    border-radius: var(--border-radius);
     background: white;
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    box-shadow: var(--box-shadow);
 }
 
 /* Fade-in animation */
