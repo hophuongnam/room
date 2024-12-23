@@ -8,7 +8,7 @@ require 'base64'
 APPLICATION_NAME = 'Meeting Room Reservation System'
 CREDENTIALS_PATH = 'credentials.json'
 DB_PATH = 'users.db'
-REDIRECT_URI = "http://localhost:3000/oauth2callback"
+REDIRECT_URI = "https://room.mefat.review/oauth2callback"
 PORT = 3000
 SCOPE = [
   'https://www.googleapis.com/auth/calendar',
