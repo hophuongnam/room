@@ -72,6 +72,7 @@ def load_organizer_credentials
 
   credentials
 end
+
 # API Routes
 get '/' do
   send_file File.join(settings.public_folder, 'index.html')
@@ -85,8 +86,15 @@ get '/api/rooms' do
   calendars = service.list_calendar_lists
   room_calendars = calendars.items.select { |cal| cal.description&.include?('type:room') }
 
+  # Sort the calendars by the extracted order value
+  sorted_rooms = room_calendars.sort_by do |cal|
+    # Extract the order number from the description (default to a high number if not present)
+    match = cal.description.match(/order:(\d+)/)
+    match ? match[1].to_i : Float::INFINITY
+  end
+
   content_type :json
-  { rooms: room_calendars.map { |cal| { id: cal.id, summary: cal.summary } } }.to_json
+  { rooms: sorted_rooms.map { |cal| { id: cal.id, summary: cal.summary, description: cal.description } } }.to_json
 end
 
 get '/api/events' do
