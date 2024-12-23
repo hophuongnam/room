@@ -1,6 +1,7 @@
 document.addEventListener('DOMContentLoaded', async () => {
     const roomTabs = document.getElementById('roomTabs');
     const roomTabContent = document.getElementById('roomTabContent');
+    const eventPopup = document.getElementById('eventPopup');
 
     let isPopupVisible = false; // Track popup visibility
 
@@ -25,6 +26,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
         if (!response.ok) throw new Error('Failed to delete event');
         window.location.reload();
+    }
+
+    function hideEventPopup() {
+        if (eventPopup.style.display === 'block') {
+            eventPopup.style.display = 'none';
+            isPopupVisible = false;
+        }
     }
 
     function renderCalendar(containerId, calendarId) {
@@ -79,7 +87,6 @@ document.addEventListener('DOMContentLoaded', async () => {
                 const options = { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
                 const startTime = info.event.start.toLocaleString(undefined, options);
                 const endTime = info.event.end ? info.event.end.toLocaleString(undefined, options) : 'No End Time';
-
 
                 // Populate popup content
                 document.getElementById('popupTitle').innerText = info.event.title || 'Untitled Event';
@@ -162,6 +169,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (index === 0) renderCalendar(`calendar-container-${room.id}`, room.id, state);
                 document.getElementById(tabId).addEventListener('click', () => {
                     renderCalendar(`calendar-container-${room.id}`, room.id, state);
+                    hideEventPopup(); // Ensure popup is hidden when switching tabs
                 });
             });
         } catch (error) {
