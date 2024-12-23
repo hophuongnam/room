@@ -1,63 +1,155 @@
+/* General body styling */
 body {
     font-family: Arial, sans-serif;
     margin: 0;
     padding: 0;
-  }
-  
-  #calendar {
+    background-color: #f8f9fa;
+}
+
+/* Calendar styling */
+#calendar {
     max-width: 900px;
     margin: 20px auto;
-  }
-  
-  #error {
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+    padding: 15px;
+}
+
+/* Error message styling */
+#error {
     color: red;
     font-size: 14px;
     text-align: center;
-  }
-  
-  #eventPopup {
-    display: none; /* Hidden by default */
-    min-width: 300px;
-    max-width: 400px;
-    font-size: 14px;
-    background: #fff;
+}
+
+/* Event popup styling */
+#eventPopup {
+    display: none;
     position: absolute;
     z-index: 1000;
+    background: white;
     border: 1px solid #ddd;
-    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
-    padding: 0;
     border-radius: 8px;
-    overflow: hidden; /* Ensures the popup has a clean border */
-  }
-  
-  #popupHeader {
-    background-color: #007bff;
-    color: #fff;
-    padding: 10px;
-    font-size: 16px;
-    font-weight: bold;
-    text-align: center;
-  }
-  
-  #popupContent {
+    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
     padding: 15px;
+    min-width: 300px;
+    max-width: 350px;
+    animation: fadeIn 0.3s ease-in-out;
+}
+
+/* Popup title styling */
+#popupContent #popupTitle {
+    margin: 0 0 10px;
+    font-size: 22px; /* Slightly larger font size */
+    font-weight: bold;
+    color: #ffffff; /* White text for contrast */
+    text-align: center; /* Center the title */
+    background-color: #007bff; /* Blue background for distinction */
+    padding: 10px; /* Padding for a cleaner appearance */
+    border-radius: 5px; /* Rounded corners for modern design */
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2); /* Subtle shadow for depth */
+}
+
+/* Popup content paragraph styling */
+#popupContent p {
+    margin: 5px 0;
     font-size: 14px;
-  }
-  
-  #popupContent p {
-    margin: 8px 0;
     color: #555;
-  }
-  
-  #popupActions {
+}
+
+/* Popup button group */
+#popupContent .popup-buttons {
     display: flex;
-    justify-content: space-between;
-    border-top: 1px solid #ddd;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+/* Popup button styling */
+#popupContent .btn {
+    font-size: 14px;
+    padding: 6px 12px;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background-color 0.2s ease-in-out;
+}
+
+/* Primary button */
+#popupContent .btn-primary {
+    background-color: #007bff;
+    border: none;
+    color: white;
+}
+
+#popupContent .btn-primary:hover {
+    background-color: #0056b3;
+}
+
+/* Danger button */
+#popupContent .btn-danger {
+    background-color: #dc3545;
+    border: none;
+    color: white;
+}
+
+#popupContent .btn-danger:hover {
+    background-color: #a71d2a;
+}
+
+/* Secondary button */
+#popupContent .btn-secondary {
+    background-color: #6c757d;
+    border: none;
+    color: white;
+}
+
+#popupContent .btn-secondary:hover {
+    background-color: #495057;
+}
+
+/* Tabs styling */
+.nav-tabs {
+    margin-bottom: 15px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.nav-tabs .nav-item {
+    margin: 0;
+}
+
+.nav-tabs .nav-link {
+    border: none;
+    color: #007bff;
+    font-weight: bold;
+}
+
+.nav-tabs .nav-link.active {
+    background-color: #007bff;
+    color: white;
+    border-radius: 4px;
+}
+
+/* Tab content styling */
+.tab-content {
     padding: 10px;
-    background-color: #f9f9f9;
-  }
-  
-  #popupActions button {
-    flex: 1;
-    margin: 0 5px;
-  }  
+    border: 1px solid #ddd;
+    border-radius: 8px;
+    background: white;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+/* Fade-in animation */
+@keyframes fadeIn {
+    from {
+        opacity: 0;
+        transform: translateY(-10px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
