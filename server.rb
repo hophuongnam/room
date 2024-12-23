@@ -7,7 +7,7 @@ require 'dotenv/load'
 
 # Configuration
 CREDENTIALS_PATH = 'credentials.json'
-REDIRECT_URI = 'http://localhost:3000/oauth2callback'
+REDIRECT_URI = "https://room.mefat.review/oauth2callback"
 DB_PATH = 'users.db'
 USER_SCOPES = ['openid', 'email', 'profile']
 ORGANIZER_SCOPES = [
@@ -167,4 +167,5 @@ delete '/api/delete_event' do
   { status: 'success' }.to_json
 end
 
+set :environment, :production
 set :port, 3000

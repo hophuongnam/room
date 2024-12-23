@@ -93,6 +93,8 @@ authorizer = Google::Auth::UserAuthorizer.new(client_id, SCOPE, nil)
 authorization_url = authorizer.get_authorization_url(base_url: REDIRECT_URI, state: 'setup_organizer')
 
 set :port, PORT
+set :environment, :production
+
 puts "Please visit the following URL to authenticate the organizer:"
 puts authorization_url
 
