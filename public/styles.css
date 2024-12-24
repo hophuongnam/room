@@ -29,8 +29,14 @@ body {
 
 /* Error message styling */
 #error {
-    color: red;
-    font-size: 14px;
+    display: none; /* Hidden by default */
+    margin-top: 20px;
+    padding: 10px;
+    color: var(--danger-color);
+    font-size: 16px;
+    background-color: rgba(220, 53, 69, 0.1);
+    border: 1px solid var(--danger-color);
+    border-radius: var(--border-radius);
     text-align: center;
 }
 
@@ -51,18 +57,9 @@ body {
 
 /* Popup title styling */
 #popupContent #popupTitle {
-    margin: 0 0 10px;
-    font-size: 22px;
-    font-weight: bold;
-    color: #ffffff;
-    text-align: center;
-    background-color: var(--primary-color);
-    padding: 10px;
-    border-radius: 5px;
-    box-shadow: var(--box-shadow);
+    color: white;
 }
 
-/* Popup header styling */
 #popupHeader {
     font-size: 18px;
     font-weight: bold;
@@ -156,7 +153,8 @@ body {
 
 #roomTabContent {
     padding: 10px;
-    margin-top: 60px; /* Adjust for the fixed navigation bar */
+    margin-top: calc(60px + 20px); /* Adjust based on fixed tab height and spacing */
+    min-height: calc(100vh - 80px); /* Ensure full height display */
 }
 
 .nav-tabs {
@@ -189,6 +187,13 @@ body {
     border-radius: var(--border-radius);
     background: white;
     box-shadow: var(--box-shadow);
+}
+
+/* Calendar event hover effect */
+.fc-event:hover {
+    background-color: var(--primary-color);
+    color: white;
+    cursor: pointer;
 }
 
 /* Fade-in animation */

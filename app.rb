@@ -1,26 +1,17 @@
 require 'sinatra'
 require 'google/apis/calendar_v3'
 require 'rufus-scheduler'
-require 'faye/websocket'
-require_relative 'services'
 require 'net/http'
 require 'uri'
 require 'json'
+require_relative 'services'
 
-connections = []
 scheduler = Rufus::Scheduler.new
 @active_watches = [] # Track active watches
-
-# Faye Server URL
-FAYE_SERVER_URL = ENV.fetch('FAYE_SERVER_URL', 'http://faye.lxc:9292/faye')
 
 # Enable sessions with a secure secret
 enable :sessions
 set :session_secret, ENV['SESSION_SECRET'] || 'fallback_super_secure_secret_key'
-
-get '/faye-browser.js' do
-  send_file File.join(settings.public_folder, 'faye-browser.js')
-end
 
 # Webhook to handle notifications
 post '/notifications' do
@@ -36,63 +27,13 @@ post '/notifications' do
   case resource_state
   when 'sync', 'exists', 'updated'
     puts "Processing event update for resource ID: #{resource_id}"
-    publish_to_faye('/updates', { type: 'event_update', resource_id: resource_id })
   when 'deleted'
     puts "Processing event deletion for resource ID: #{resource_id}"
-    publish_to_faye('/updates', { type: 'event_deleted', resource_id: resource_id })
   else
     puts "Unhandled resource state: #{resource_state}"
   end
 
   status 200
-end
-
-# Helper to publish messages to Faye
-def publish_to_faye(channel, message)
-  uri = URI.parse("http://faye.lxc:9292/faye")
-  request = Net::HTTP::Post.new(uri, 'Content-Type' => 'application/json')
-
-  # Constructing a Bayeux protocol message
-  bayeux_message = [
-    {
-      "channel" => channel,
-      "data" => message,
-      "id" => SecureRandom.uuid
-    }
-  ]
-
-  request.body = bayeux_message.to_json
-
-  response = Net::HTTP.start(uri.hostname, uri.port) do |http|
-    http.request(request)
-  end
-
-  if response.code.to_i == 200
-    puts "Message published to Faye: #{message}"
-  else
-    puts "Failed to publish to Faye: #{response.body}"
-  end
-end
-
-# WebSocket endpoint for client updates
-get '/updates' do
-  if Faye::WebSocket.websocket?(request.env)
-    ws = Faye::WebSocket.new(request.env)
-
-    ws.on :open do |_event|
-      connections << ws
-      puts "WebSocket connection opened"
-    end
-
-    ws.on :close do |_event|
-      connections.delete(ws)
-      puts "WebSocket connection closed"
-    end
-
-    ws.rack_response
-  else
-    halt 400, 'WebSocket required'
-  end
 end
 
 # API Routes
@@ -110,7 +51,6 @@ get '/api/rooms' do
 
   # Sort the calendars by the extracted order value
   sorted_rooms = room_calendars.sort_by do |cal|
-    # Extract the order number from the description (default to a high number if not present)
     match = cal.description.match(/order:(\d+)/)
     match ? match[1].to_i : Float::INFINITY
   end
@@ -133,7 +73,7 @@ get '/api/events' do
     events: events.items.map do |event|
       {
         id: event.id,
-        title: event.summary, # Mapping Google Calendar's "summary" to "title" for FullCalendar
+        title: event.summary,
         start: event.start.date_time || event.start.date,
         end: event.end.date_time || event.end.date,
         attendees: event.attendees&.map { |att| att.email } || []
@@ -170,9 +110,6 @@ post '/api/create_event' do
 
   result = service.insert_event(calendar_id, event)
 
-  # Broadcast WebSocket update
-  publish_to_faye('/updates', { type: 'event_created', event: result.to_h })
-
   content_type :json
   { event_id: result.id, status: 'success' }.to_json
 end
@@ -189,7 +126,6 @@ delete '/api/delete_event' do
   service.authorization = credentials
 
   service.delete_event(calendar_id, event_id)
-  publish_to_faye('/updates', { type: 'event_deleted', calendar_id: calendar_id, event_id: event_id })
 
   content_type :json
   { status: 'success' }.to_json
@@ -203,39 +139,6 @@ scheduler.every '23h' do
   rescue => e
     puts "Error renewing watches: #{e.message}"
   end
-end
-
-# Ensure unique watch setup
-def setup_watch(calendar_id)
-  return if @active_watches.include?(calendar_id)
-
-  service = Google::Apis::CalendarV3::CalendarService.new
-  service.authorization = load_organizer_credentials
-
-  channel = Google::Apis::CalendarV3::Channel.new(
-    id: SecureRandom.uuid,
-    type: 'webhook',
-    address: 'https://room.mefat.review/notifications'
-  )
-
-  service.watch_event(calendar_id, channel)
-  @active_watches << calendar_id
-  puts "Watch set up for calendar: #{calendar_id}"
-end
-
-# Set up initial watch for calendar list
-def setup_calendar_list_watch
-  service = Google::Apis::CalendarV3::CalendarService.new
-  service.authorization = load_organizer_credentials
-
-  channel = Google::Apis::CalendarV3::Channel.new(
-    id: SecureRandom.uuid,  # Unique ID for the subscription
-    type: 'webhook',        # Type of notification
-    address: 'https://room.mefat.review/notifications'  # Your webhook URL
-  )
-
-  service.watch_calendar_list(channel)
-  puts 'Calendar list watch set up successfully'
 end
 
 setup_calendar_list_watch

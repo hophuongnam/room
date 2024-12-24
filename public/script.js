@@ -1,46 +1,40 @@
 document.addEventListener('DOMContentLoaded', async () => {
     const roomTabs = document.getElementById('roomTabs');
     const roomTabContent = document.getElementById('roomTabContent');
+    const errorDiv = document.getElementById('error');
 
     let isPopupVisible = false; // Track popup visibility
 
-    const client = new Faye.Client('https://room.mefat.review/faye');
+    function showError(message) {
+        errorDiv.textContent = message; // Set the error message
+        errorDiv.style.display = 'block'; // Show the error
+    }
 
-    // Debugging Faye Connection States
-    client.bind('transport:up', () => console.log('Faye connection up'));
-    client.bind('transport:down', () => console.log('Faye connection down'));
-
-    client.subscribe('/updates', (message) => {
-        console.log('Message received from Faye:', message);
-
-        if (message.type === 'event_update' || message.type === 'event_created') {
-            console.log('Event update received:', message);
-            // Refresh calendar events dynamically
-            const calendarId = message.resource_id; // Assuming resource_id corresponds to calendarId
-            const calendarEl = document.querySelector(`#calendar-container-${calendarId} .fc`);
-            if (calendarEl) {
-                const calendar = FullCalendar.getCalendar(calendarEl);
-                if (calendar) {
-                    calendar.refetchEvents();
-                }
-            }
-        } else if (message.type === 'event_deleted') {
-            console.log('Event deleted notification received:', message);
-            // Optionally handle deleted events
-        }
-    });
+    function hideError() {
+        errorDiv.style.display = 'none'; // Hide the error
+    }
 
     async function fetchRooms() {
-        const response = await fetch('/api/rooms');
-        if (!response.ok) throw new Error('Failed to fetch rooms');
-        return response.json();
+        try {
+            const response = await fetch('/api/rooms');
+            if (!response.ok) throw new Error('Failed to fetch rooms');
+            return response.json();
+        } catch (error) {
+            showError(error.message);
+            throw error;
+        }
     }
 
     async function fetchEvents(calendarId) {
-        const response = await fetch(`/api/events?calendarId=${calendarId}`);
-        if (!response.ok) throw new Error('Failed to fetch events');
-        const data = await response.json();
-        return data.events;
+        try {
+            const response = await fetch(`/api/events?calendarId=${calendarId}`);
+            if (!response.ok) throw new Error('Failed to fetch events');
+            const data = await response.json();
+            return data.events;
+        } catch (error) {
+            showError(error.message);
+            throw error;
+        }
     }
 
     function renderCalendar(containerId, calendarId) {
@@ -179,6 +173,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     renderCalendar(`calendar-container-${room.id}`, room.id, state);
                 });
             });
+            hideError(); // Clear any existing errors after successful initialization
         } catch (error) {
             console.error('Error initializing tabs:', error);
         }

@@ -71,7 +71,12 @@ def setup_watch(calendar_id)
     address: 'https://room.mefat.review/notifications'  # Your webhook URL
   )
 
-  service.watch_event(calendar_id, channel)
+  begin
+    service.watch_event(calendar_id, channel)
+    puts "Watch set up successfully for calendar: #{calendar_id}"
+  rescue Google::Apis::ClientError => e
+    puts "Error setting up watch: #{e.message}"
+  end
 end
 
 # Watch Calendar List for Changes
@@ -85,8 +90,12 @@ def setup_calendar_list_watch
     address: 'https://room.mefat.review/notifications'  # Your webhook URL
   )
 
-  service.watch_calendar_list(channel)
-  puts 'Calendar list watch set up successfully'
+  begin
+    service.watch_calendar_list(channel)
+    puts 'Calendar list watch set up successfully'
+  rescue Google::Apis::ClientError => e
+    puts "Error setting up calendar list watch: #{e.message}"
+  end
 end
 
 # Refresh Room Calendars
