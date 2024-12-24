@@ -1,0 +1,5 @@
+.env
+.sync/
+credentials.json
+users.db
+Gemfile.lock

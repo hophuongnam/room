@@ -1,7 +1,7 @@
 require 'sinatra'
 require 'google/apis/calendar_v3'
-require 'sinatra-websocket'
 require 'rufus-scheduler'
+require 'faye/websocket'
 require_relative 'services'
 
 connections = []
@@ -38,13 +38,22 @@ end
 
 # WebSocket endpoint for client updates
 get '/updates' do
-  if !request.websocket?
-    halt 400, 'WebSocket required'
-  end
+  if Faye::WebSocket.websocket?(request.env)
+    ws = Faye::WebSocket.new(request.env)
 
-  request.websocket do |ws|
-    ws.onopen { connections << ws }
-    ws.onclose { connections.delete(ws) }
+    ws.on :open do |event|
+      connections << ws
+      puts "WebSocket connection opened"
+    end
+
+    ws.on :close do |event|
+      connections.delete(ws)
+      puts "WebSocket connection closed"
+    end
+
+    ws.rack_response
+  else
+    halt 400, 'WebSocket required'
   end
 end
 
