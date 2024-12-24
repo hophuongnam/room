@@ -1,183 +1,367 @@
 document.addEventListener('DOMContentLoaded', async () => {
-    const roomTabs = document.getElementById('roomTabs');
-    const roomTabContent = document.getElementById('roomTabContent');
-    const errorDiv = document.getElementById('error');
+  /* ------------------------------------------------------------------
+     DOM References
+  ------------------------------------------------------------------ */
+  const roomTabs        = document.getElementById('roomTabs');
+  const roomTabContent  = document.getElementById('roomTabContent');
+  const errorDiv        = document.getElementById('error');
 
-    let isPopupVisible = false; // Track popup visibility
+  // Popup elements
+  const eventPopup      = document.getElementById('eventPopup');
+  const popupTitle      = document.getElementById('popupTitle');
+  const popupTimeStart  = document.getElementById('popupTimeStart');
+  const popupTimeEnd    = document.getElementById('popupTimeEnd');
+  const popupOrganizer  = document.getElementById('popupOrganizer');
+  const popupAttendees  = document.getElementById('popupAttendees');
 
-    function showError(message) {
-        errorDiv.textContent = message; // Set the error message
-        errorDiv.style.display = 'block'; // Show the error
+  const editEventBtn    = document.getElementById('editEvent');
+  const deleteEventBtn  = document.getElementById('deleteEvent');
+  const closePopupBtn   = document.getElementById('closePopup');
+
+  // Modal references
+  const eventModal      = new bootstrap.Modal(document.getElementById('eventModal'), {});
+  const eventForm       = document.getElementById('eventForm');
+  const calendarIdField = document.getElementById('calendarId');
+  const eventIdField    = document.getElementById('eventId');
+  const eventTitleField = document.getElementById('eventTitle');
+  const eventStartField = document.getElementById('eventStart');
+  const eventEndField   = document.getElementById('eventEnd');
+  const eventGuestsField= document.getElementById('eventGuests');
+
+  // Track state
+  let isPopupVisible    = false;
+  const calendars       = {};      // { calendarId: FullCalendar instance }
+  const lastKnownVersions = {};    // { calendarId: number }
+
+  /* ------------------------------------------------------------------
+     Helper Functions
+  ------------------------------------------------------------------ */
+  function showError(msg) {
+    errorDiv.textContent = msg;
+    errorDiv.style.display = 'block';
+  }
+
+  function hideError() {
+    errorDiv.style.display = 'none';
+  }
+
+  async function fetchJSON(url, options = {}) {
+    const res = await fetch(url, options);
+    if (!res.ok) {
+      throw new Error(`Fetch error (${res.status}): ${await res.text()}`);
     }
+    return res.json();
+  }
 
-    function hideError() {
-        errorDiv.style.display = 'none'; // Hide the error
-    }
+  async function fetchRooms() {
+    return fetchJSON('/api/rooms');
+  }
 
-    async function fetchRooms() {
-        try {
-            const response = await fetch('/api/rooms');
-            if (!response.ok) throw new Error('Failed to fetch rooms');
-            return response.json();
-        } catch (error) {
-            showError(error.message);
-            throw error;
+  async function createEvent({ calendarId, title, start, end, participants }) {
+    return fetchJSON('/api/create_event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ calendarId, title, start, end, participants }),
+    });
+  }
+
+  async function deleteEvent({ calendarId, id }) {
+    return fetchJSON('/api/delete_event', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ calendarId, id }),
+    });
+  }
+
+  /* ------------------------------------------------------------------
+     Load Rooms & Create Tabs
+  ------------------------------------------------------------------ */
+  let rooms = [];
+  try {
+    const data = await fetchRooms();
+    rooms = data.rooms; // e.g. [{id, summary, description}, ...]
+    hideError();
+  } catch (err) {
+    console.error(err);
+    showError('Failed to load rooms.');
+    return;
+  }
+
+  if (!rooms || rooms.length === 0) {
+    showError('No rooms found.');
+    return;
+  }
+
+  rooms.forEach((room, index) => {
+    // Create the tab
+    const tabId   = `tab-${room.id}`;
+    const paneId  = `pane-${room.id}`;
+    const li      = document.createElement('li');
+    li.className  = 'nav-item';
+
+    li.innerHTML = `
+      <button 
+        class="nav-link ${index === 0 ? 'active' : ''}"
+        id="${tabId}"
+        data-bs-toggle="tab"
+        data-bs-target="#${paneId}"
+        type="button"
+        role="tab"
+      >
+        ${room.summary}
+      </button>
+    `;
+    roomTabs.appendChild(li);
+
+    // Create the tab pane
+    const pane = document.createElement('div');
+    pane.className = `tab-pane fade ${index === 0 ? 'show active' : ''}`;
+    pane.id = paneId;
+    pane.innerHTML = `
+      <div 
+        id="calendar-container-${room.id}" 
+        style="height:100%; min-height:600px;"
+      ></div>
+    `;
+    roomTabContent.appendChild(pane);
+
+    // Initialize last known version for each room
+    lastKnownVersions[room.id] = 0;
+
+    // Lazy-init the calendar on tab click or immediately for the first tab
+    if (index === 0) {
+      initCalendar(room.id);
+    } else {
+      document.getElementById(tabId).addEventListener('click', () => {
+        if (!calendars[room.id]) {
+          initCalendar(room.id);
         }
+      });
     }
+  });
 
-    async function fetchEvents(calendarId) {
+  /* ------------------------------------------------------------------
+     FullCalendar Initialization
+  ------------------------------------------------------------------ */
+  function initCalendar(calendarId) {
+    const calendarEl = document.getElementById(`calendar-container-${calendarId}`);
+    const calendar = new FullCalendar.Calendar(calendarEl, {
+      initialView: 'dayGridMonth',
+      height: 'auto',
+      headerToolbar: {
+        left: 'prev,next today',
+        center: 'title',
+        right: 'dayGridMonth,timeGridWeek,timeGridDay',
+      },
+      // Fetch the cached data from /api/room_data
+      events: async (info, successCallback, failureCallback) => {
         try {
-            const response = await fetch(`/api/events?calendarId=${calendarId}`);
-            if (!response.ok) throw new Error('Failed to fetch events');
-            const data = await response.json();
-            return data.events;
-        } catch (error) {
-            showError(error.message);
-            throw error;
+          const data = await fetchJSON(`/api/room_data?calendarId=${encodeURIComponent(calendarId)}`);
+          successCallback(data.events || []);
+        } catch (err) {
+          console.error(err);
+          failureCallback(err);
         }
+      },
+      selectable: true,
+      select: (selectionInfo) => {
+        if (!isPopupVisible) {
+          openEventModal({
+            calendarId,
+            start: selectionInfo.startStr,
+            end: selectionInfo.endStr,
+          });
+        }
+      },
+      eventClick: (clickInfo) => {
+        openEventPopup(clickInfo.event, calendarId, clickInfo.jsEvent);
+      },
+    });
+    calendar.render();
+    calendars[calendarId] = calendar;
+  }
+
+  /* ------------------------------------------------------------------
+     Event Popup Logic
+  ------------------------------------------------------------------ */
+  function openEventPopup(event, calendarId, jsEvent) {
+    isPopupVisible = true;
+
+    // Show popup off-screen first to measure its size
+    eventPopup.style.display = 'block';
+    eventPopup.style.left = '-9999px';
+    eventPopup.style.top = '-9999px';
+
+    // Coordinates for positioning near click
+    const offset = 10;
+    let popupLeft = jsEvent.pageX + offset;
+    let popupTop  = jsEvent.pageY + offset;
+
+    // Measure popup
+    const rect = eventPopup.getBoundingClientRect();
+    const popupWidth = rect.width;
+    const popupHeight = rect.height;
+
+    // Viewport bounds
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+
+    // Adjust if off right edge
+    if (popupLeft + popupWidth > vw) {
+      popupLeft = vw - popupWidth - offset;
+    }
+    // Adjust if off bottom edge
+    if (popupTop + popupHeight > vh) {
+      popupTop = vh - popupHeight - offset;
     }
 
-    function renderCalendar(containerId, calendarId) {
-        const savedView = localStorage.getItem(`view_${calendarId}`);
-        const savedDate = localStorage.getItem(`date_${calendarId}`);
-        const calendarEl = document.getElementById(containerId);
-        const calendar = new FullCalendar.Calendar(calendarEl, {
-            initialView: savedView || 'dayGridMonth',
-            initialDate: savedDate ? new Date(savedDate) : new Date(),
-            headerToolbar: {
-                left: 'prev,next today',
-                center: 'title',
-                right: 'dayGridMonth,timeGridWeek,timeGridDay',
-            },
-            events: async function (fetchInfo, successCallback, failureCallback) {
-                try {
-                    const events = await fetchEvents(calendarId);
-                    successCallback(events);
-                } catch (error) {
-                    failureCallback(error);
-                }
-            },
-            eventClick: function (info) {
-                isPopupVisible = true;
-                const popup = document.getElementById('eventPopup');
-                const { clientX: x, clientY: y } = info.jsEvent;
+    // Apply final position
+    eventPopup.style.left = `${popupLeft}px`;
+    eventPopup.style.top = `${popupTop}px`;
 
-                // Set initial position
-                popup.style.left = `${x + 10}px`;
-                popup.style.top = `${y + 10}px`;
-                popup.style.display = 'block';
+    // Fill popup content
+    popupTitle.textContent = event.title || 'Untitled';
 
-                // Adjust position to keep popup within the viewport
-                const popupRect = popup.getBoundingClientRect();
-                const viewportWidth = window.innerWidth;
-                const viewportHeight = window.innerHeight;
+    const startTime = event.start ? new Date(event.start) : null;
+    const endTime   = event.end   ? new Date(event.end)   : null;
+    const timeOpts  = { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
 
-                let adjustedX = x + 10;
-                let adjustedY = y + 10;
+    // Time Start / Time End
+    popupTimeStart.textContent = startTime
+      ? startTime.toLocaleString(undefined, timeOpts)
+      : 'N/A';
+    popupTimeEnd.textContent = endTime
+      ? endTime.toLocaleString(undefined, timeOpts)
+      : 'N/A';
 
-                if (popupRect.right > viewportWidth) {
-                    adjustedX = viewportWidth - popupRect.width - 10;
-                }
-                if (popupRect.bottom > viewportHeight) {
-                    adjustedY = viewportHeight - popupRect.height - 10;
-                }
+    // Organizer & Attendees (if stored in extendedProps or event.attendees)
+    popupOrganizer.textContent = event.extendedProps?.organizer || '';
+    const attendees = event.extendedProps?.attendees || event.attendees || [];
+    popupAttendees.textContent = Array.isArray(attendees) ? attendees.join(', ') : '';
 
-                popup.style.left = `${adjustedX}px`;
-                popup.style.top = `${adjustedY}px`;
+    // Edit, Delete, Close
+    editEventBtn.onclick = () => {
+      openEventModal({
+        calendarId,
+        eventId: event.id,
+        title: event.title,
+        start: event.start,
+        end: event.end,
+        attendees,
+      });
+      closeEventPopup();
+    };
 
-                // Format the start and end time
-                const options = { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
-                const startTime = info.event.start.toLocaleString(undefined, options);
-                const endTime = info.event.end ? info.event.end.toLocaleString(undefined, options) : 'No End Time';
-
-                // Populate popup content
-                document.getElementById('popupTitle').innerText = info.event.title || 'Untitled Event';
-                document.getElementById('popupTime').innerHTML = `
-                <strong>Start Time:</strong> ${startTime}<br>
-                <strong>End Time:</strong> ${endTime}
-                `;
-
-                // Event handlers
-                document.getElementById('editEvent').onclick = () => {
-                    const eventModal = new bootstrap.Modal(document.getElementById('eventModal'));
-                    document.getElementById('eventId').value = info.event.id;
-                    document.getElementById('calendarId').value = calendarId;
-                    document.getElementById('eventTitle').value = info.event.title;
-                    document.getElementById('eventStart').value = info.event.start.toISOString().slice(0, -1);
-                    document.getElementById('eventEnd').value = info.event.end ? info.event.end.toISOString().slice(0, -1) : '';
-                    eventModal.show();
-                    popup.style.display = 'none';
-                    isPopupVisible = false;
-                };
-
-                document.getElementById('deleteEvent').onclick = async () => {
-                    if (confirm('Are you sure you want to delete this event?')) {
-                        await deleteEvent(info.event, calendarId);
-                        popup.style.display = 'none';
-                        isPopupVisible = false;
-                    }
-                };
-
-                document.getElementById('closePopup').onclick = () => {
-                    popup.style.display = 'none';
-                    isPopupVisible = false;
-                };
-            },
-            viewDidMount: function (view) {
-                localStorage.setItem(`view_${calendarId}`, view.view.type);
-                localStorage.setItem(`date_${calendarId}`, view.view.currentStart.toISOString());
-            },
-            selectable: true,
-            select: function (info) {
-                if (!isPopupVisible) {
-                    const eventModal = new bootstrap.Modal(document.getElementById('eventModal'));
-                    document.getElementById('eventStart').value = new Date(info.start).toISOString().slice(0, 16);
-                    document.getElementById('eventEnd').value = new Date(info.end).toISOString().slice(0, 16);
-                    document.getElementById('calendarId').value = calendarId;
-                    eventModal.show();
-                }
-            },
-            unselectable: function () {
-                return isPopupVisible;
-            },
-        });
-        calendar.render();
-        return calendar;
-    }
-
-    async function initializeTabs() {
+    deleteEventBtn.onclick = async () => {
+      if (confirm('Are you sure you want to delete this event?')) {
         try {
-            const { rooms } = await fetchRooms();
-            const roomStates = {};
-            rooms.forEach((room, index) => {
-                const tabId = `tab-${room.id}`;
-                const paneId = `pane-${room.id}`;
-
-                const tab = document.createElement('li');
-                tab.className = 'nav-item';
-                tab.innerHTML = `
-                  <button class="nav-link ${index === 0 ? 'active' : ''}" id="${tabId}" data-bs-toggle="tab" data-bs-target="#${paneId}" type="button" role="tab">
-                    ${room.summary}
-                  </button>`;
-                roomTabs.appendChild(tab);
-
-                const pane = document.createElement('div');
-                pane.className = `tab-pane fade ${index === 0 ? 'show active' : ''}`;
-                pane.id = paneId;
-                pane.innerHTML = `<div id="calendar-container-${room.id}" style="height:100%;"></div>`;
-                roomTabContent.appendChild(pane);
-
-                const state = roomStates[room.id] = {};
-                if (index === 0) renderCalendar(`calendar-container-${room.id}`, room.id, state);
-                document.getElementById(tabId).addEventListener('click', () => {
-                    renderCalendar(`calendar-container-${room.id}`, room.id, state);
-                });
-            });
-            hideError(); // Clear any existing errors after successful initialization
-        } catch (error) {
-            console.error('Error initializing tabs:', error);
+          await deleteEvent({ calendarId, id: event.id });
+          closeEventPopup();
+          calendars[calendarId]?.refetchEvents();
+        } catch (err) {
+          console.error(err);
+          showError('Failed to delete event.');
         }
+      }
+    };
+
+    closePopupBtn.onclick = closeEventPopup;
+  }
+
+  function closeEventPopup() {
+    eventPopup.style.display = 'none';
+    isPopupVisible = false;
+  }
+
+  /* ------------------------------------------------------------------
+     Modal Logic (Create/Edit)
+  ------------------------------------------------------------------ */
+  function openEventModal({ calendarId, eventId, title, start, end, attendees }) {
+    calendarIdField.value = calendarId || '';
+    eventIdField.value    = eventId    || '';
+    eventTitleField.value = title      || '';
+
+    if (start) {
+      const dt = new Date(start);
+      eventStartField.value = dt.toISOString().slice(0,16);
+    } else {
+      eventStartField.value = '';
     }
 
-    initializeTabs();
+    if (end) {
+      const dt = new Date(end);
+      eventEndField.value = dt.toISOString().slice(0,16);
+    } else {
+      eventEndField.value = '';
+    }
+
+    if (attendees && attendees.length > 0) {
+      eventGuestsField.value = attendees.join(', ');
+    } else {
+      eventGuestsField.value = '';
+    }
+
+    eventModal.show();
+  }
+
+  eventForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const calendarId   = calendarIdField.value;
+    const eventId      = eventIdField.value;
+    const title        = eventTitleField.value;
+    const start        = eventStartField.value;
+    const end          = eventEndField.value;
+    const guestsStr    = eventGuestsField.value;
+    const participants = guestsStr.split(',').map(s => s.trim()).filter(Boolean);
+
+    if (!calendarId || !title || !start || !end) {
+      showError('Missing required fields.');
+      return;
+    }
+
+    try {
+      // If updating an existing event (quick approach: delete + create)
+      if (eventId) {
+        await deleteEvent({ calendarId, id: eventId });
+      }
+      await createEvent({ calendarId, title, start, end, participants });
+
+      eventModal.hide();
+      hideError();
+
+      calendars[calendarId]?.refetchEvents();
+    } catch (err) {
+      console.error(err);
+      showError('Failed to save event.');
+    }
+  });
+
+  /* ------------------------------------------------------------------
+     Polling for Room Updates
+  ------------------------------------------------------------------ */
+  setInterval(checkRoomUpdates, 30000);
+
+  async function checkRoomUpdates() {
+    try {
+      // { updates: [ { roomId, version }, ... ] }
+      const data = await fetchJSON('/api/room_updates');
+      data.updates.forEach(({ roomId, version }) => {
+        const currentVer = lastKnownVersions[roomId] || 0;
+        if (version > currentVer) {
+          // There's a new update for this room
+          lastKnownVersions[roomId] = version;
+          // If the calendar is loaded, refetch events
+          if (calendars[roomId]) {
+            calendars[roomId].refetchEvents();
+          }
+        }
+      });
+    } catch (err) {
+      console.error('Failed to check updates:', err);
+    }
+  }
+
+  // Optionally run once immediately
+  checkRoomUpdates();
 });
