@@ -1,12 +1,18 @@
 document.addEventListener('DOMContentLoaded', async () => {
     const roomTabs = document.getElementById('roomTabs');
     const roomTabContent = document.getElementById('roomTabContent');
-  
+
     let isPopupVisible = false; // Track popup visibility
-  
+
     const client = new Faye.Client('https://room.mefat.review/faye');
-  
+
+    // Debugging Faye Connection States
+    client.bind('transport:up', () => console.log('Faye connection up'));
+    client.bind('transport:down', () => console.log('Faye connection down'));
+
     client.subscribe('/updates', (message) => {
+        console.log('Message received from Faye:', message);
+
         if (message.type === 'event_update' || message.type === 'event_created') {
             console.log('Event update received:', message);
             // Refresh calendar events dynamically
@@ -18,22 +24,25 @@ document.addEventListener('DOMContentLoaded', async () => {
                     calendar.refetchEvents();
                 }
             }
+        } else if (message.type === 'event_deleted') {
+            console.log('Event deleted notification received:', message);
+            // Optionally handle deleted events
         }
     });
-  
+
     async function fetchRooms() {
         const response = await fetch('/api/rooms');
         if (!response.ok) throw new Error('Failed to fetch rooms');
         return response.json();
     }
-  
+
     async function fetchEvents(calendarId) {
         const response = await fetch(`/api/events?calendarId=${calendarId}`);
         if (!response.ok) throw new Error('Failed to fetch events');
         const data = await response.json();
         return data.events;
     }
-  
+
     function renderCalendar(containerId, calendarId) {
         const savedView = localStorage.getItem(`view_${calendarId}`);
         const savedDate = localStorage.getItem(`date_${calendarId}`);
@@ -58,42 +67,42 @@ document.addEventListener('DOMContentLoaded', async () => {
                 isPopupVisible = true;
                 const popup = document.getElementById('eventPopup');
                 const { clientX: x, clientY: y } = info.jsEvent;
-  
+
                 // Set initial position
                 popup.style.left = `${x + 10}px`;
                 popup.style.top = `${y + 10}px`;
                 popup.style.display = 'block';
-  
+
                 // Adjust position to keep popup within the viewport
                 const popupRect = popup.getBoundingClientRect();
                 const viewportWidth = window.innerWidth;
                 const viewportHeight = window.innerHeight;
-  
+
                 let adjustedX = x + 10;
                 let adjustedY = y + 10;
-  
+
                 if (popupRect.right > viewportWidth) {
                     adjustedX = viewportWidth - popupRect.width - 10;
                 }
                 if (popupRect.bottom > viewportHeight) {
                     adjustedY = viewportHeight - popupRect.height - 10;
                 }
-  
+
                 popup.style.left = `${adjustedX}px`;
                 popup.style.top = `${adjustedY}px`;
-  
+
                 // Format the start and end time
                 const options = { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
                 const startTime = info.event.start.toLocaleString(undefined, options);
                 const endTime = info.event.end ? info.event.end.toLocaleString(undefined, options) : 'No End Time';
-  
+
                 // Populate popup content
                 document.getElementById('popupTitle').innerText = info.event.title || 'Untitled Event';
                 document.getElementById('popupTime').innerHTML = `
                 <strong>Start Time:</strong> ${startTime}<br>
                 <strong>End Time:</strong> ${endTime}
                 `;
-  
+
                 // Event handlers
                 document.getElementById('editEvent').onclick = () => {
                     const eventModal = new bootstrap.Modal(document.getElementById('eventModal'));
@@ -106,7 +115,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                     popup.style.display = 'none';
                     isPopupVisible = false;
                 };
-  
+
                 document.getElementById('deleteEvent').onclick = async () => {
                     if (confirm('Are you sure you want to delete this event?')) {
                         await deleteEvent(info.event, calendarId);
@@ -114,7 +123,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                         isPopupVisible = false;
                     }
                 };
-  
+
                 document.getElementById('closePopup').onclick = () => {
                     popup.style.display = 'none';
                     isPopupVisible = false;
@@ -141,7 +150,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         calendar.render();
         return calendar;
     }
-  
+
     async function initializeTabs() {
         try {
             const { rooms } = await fetchRooms();
@@ -149,7 +158,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             rooms.forEach((room, index) => {
                 const tabId = `tab-${room.id}`;
                 const paneId = `pane-${room.id}`;
-  
+
                 const tab = document.createElement('li');
                 tab.className = 'nav-item';
                 tab.innerHTML = `
@@ -157,13 +166,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                     ${room.summary}
                   </button>`;
                 roomTabs.appendChild(tab);
-  
+
                 const pane = document.createElement('div');
                 pane.className = `tab-pane fade ${index === 0 ? 'show active' : ''}`;
                 pane.id = paneId;
                 pane.innerHTML = `<div id="calendar-container-${room.id}" style="height:100%;"></div>`;
                 roomTabContent.appendChild(pane);
-  
+
                 const state = roomStates[room.id] = {};
                 if (index === 0) renderCalendar(`calendar-container-${room.id}`, room.id, state);
                 document.getElementById(tabId).addEventListener('click', () => {
@@ -174,6 +183,6 @@ document.addEventListener('DOMContentLoaded', async () => {
             console.error('Error initializing tabs:', error);
         }
     }
-  
+
     initializeTabs();
-  });
+});

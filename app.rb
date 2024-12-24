@@ -1,23 +1,25 @@
 require 'sinatra'
 require 'google/apis/calendar_v3'
 require 'rufus-scheduler'
-require 'net/http'
-require 'json'
+require 'faye/websocket'
 require_relative 'services'
+require 'net/http'
+require 'uri'
+require 'json'
 
-FAYE_URL = 'http://localhost:9292/faye' # Update with your Faye server's URL
-
+connections = []
 scheduler = Rufus::Scheduler.new
 @active_watches = [] # Track active watches
+
+# Faye Server URL
+FAYE_SERVER_URL = ENV.fetch('FAYE_SERVER_URL', 'http://faye.lxc:9292/faye')
 
 # Enable sessions with a secure secret
 enable :sessions
 set :session_secret, ENV['SESSION_SECRET'] || 'fallback_super_secure_secret_key'
 
-# Helper function to publish messages to Faye
-def publish_to_faye(channel, message)
-  uri = URI(FAYE_URL)
-  Net::HTTP.post_form(uri, 'channel' => channel, 'data' => message.to_json)
+get '/faye-browser.js' do
+  send_file File.join(settings.public_folder, 'faye-browser.js')
 end
 
 # Webhook to handle notifications
@@ -31,15 +33,66 @@ post '/notifications' do
   resource_id = headers['HTTP_X_GOOG_RESOURCE_ID']
   resource_state = headers['HTTP_X_GOOG_RESOURCE_STATE']
 
-  if resource_state == 'sync' || resource_state == 'exists'
-    puts "Processing notification for resource state: #{resource_state}, resource ID: #{resource_id}"
-    # Broadcast event update notification to Faye
+  case resource_state
+  when 'sync', 'exists', 'updated'
+    puts "Processing event update for resource ID: #{resource_id}"
     publish_to_faye('/updates', { type: 'event_update', resource_id: resource_id })
+  when 'deleted'
+    puts "Processing event deletion for resource ID: #{resource_id}"
+    publish_to_faye('/updates', { type: 'event_deleted', resource_id: resource_id })
   else
     puts "Unhandled resource state: #{resource_state}"
   end
 
   status 200
+end
+
+# Helper to publish messages to Faye
+def publish_to_faye(channel, message)
+  uri = URI.parse("http://faye.lxc:9292/faye")
+  request = Net::HTTP::Post.new(uri, 'Content-Type' => 'application/json')
+
+  # Constructing a Bayeux protocol message
+  bayeux_message = [
+    {
+      "channel" => channel,
+      "data" => message,
+      "id" => SecureRandom.uuid
+    }
+  ]
+
+  request.body = bayeux_message.to_json
+
+  response = Net::HTTP.start(uri.hostname, uri.port) do |http|
+    http.request(request)
+  end
+
+  if response.code.to_i == 200
+    puts "Message published to Faye: #{message}"
+  else
+    puts "Failed to publish to Faye: #{response.body}"
+  end
+end
+
+# WebSocket endpoint for client updates
+get '/updates' do
+  if Faye::WebSocket.websocket?(request.env)
+    ws = Faye::WebSocket.new(request.env)
+
+    ws.on :open do |_event|
+      connections << ws
+      puts "WebSocket connection opened"
+    end
+
+    ws.on :close do |_event|
+      connections.delete(ws)
+      puts "WebSocket connection closed"
+    end
+
+    ws.rack_response
+  else
+    halt 400, 'WebSocket required'
+  end
 end
 
 # API Routes
@@ -117,7 +170,7 @@ post '/api/create_event' do
 
   result = service.insert_event(calendar_id, event)
 
-  # Broadcast WebSocket update to Faye
+  # Broadcast WebSocket update
   publish_to_faye('/updates', { type: 'event_created', event: result.to_h })
 
   content_type :json
@@ -136,8 +189,6 @@ delete '/api/delete_event' do
   service.authorization = credentials
 
   service.delete_event(calendar_id, event_id)
-
-  # Broadcast WebSocket update to Faye
   publish_to_faye('/updates', { type: 'event_deleted', calendar_id: calendar_id, event_id: event_id })
 
   content_type :json
@@ -173,6 +224,20 @@ def setup_watch(calendar_id)
 end
 
 # Set up initial watch for calendar list
+def setup_calendar_list_watch
+  service = Google::Apis::CalendarV3::CalendarService.new
+  service.authorization = load_organizer_credentials
+
+  channel = Google::Apis::CalendarV3::Channel.new(
+    id: SecureRandom.uuid,  # Unique ID for the subscription
+    type: 'webhook',        # Type of notification
+    address: 'https://room.mefat.review/notifications'  # Your webhook URL
+  )
+
+  service.watch_calendar_list(channel)
+  puts 'Calendar list watch set up successfully'
+end
+
 setup_calendar_list_watch
 
 set :environment, :production
