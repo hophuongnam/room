@@ -177,4 +177,3 @@ document.addEventListener('DOMContentLoaded', async () => {
   
     initializeTabs();
   });
-  

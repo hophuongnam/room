@@ -1,16 +1,24 @@
 require 'sinatra'
 require 'google/apis/calendar_v3'
 require 'rufus-scheduler'
-require 'faye/websocket'
+require 'net/http'
+require 'json'
 require_relative 'services'
 
-connections = []
+FAYE_URL = 'http://localhost:9292/faye' # Update with your Faye server's URL
+
 scheduler = Rufus::Scheduler.new
 @active_watches = [] # Track active watches
 
 # Enable sessions with a secure secret
 enable :sessions
 set :session_secret, ENV['SESSION_SECRET'] || 'fallback_super_secure_secret_key'
+
+# Helper function to publish messages to Faye
+def publish_to_faye(channel, message)
+  uri = URI(FAYE_URL)
+  Net::HTTP.post_form(uri, 'channel' => channel, 'data' => message.to_json)
+end
 
 # Webhook to handle notifications
 post '/notifications' do
@@ -25,36 +33,13 @@ post '/notifications' do
 
   if resource_state == 'sync' || resource_state == 'exists'
     puts "Processing notification for resource state: #{resource_state}, resource ID: #{resource_id}"
-    # Broadcast event update notification
-    connections.each do |ws|
-      ws.send({ type: 'event_update', resource_id: resource_id }.to_json)
-    end
+    # Broadcast event update notification to Faye
+    publish_to_faye('/updates', { type: 'event_update', resource_id: resource_id })
   else
     puts "Unhandled resource state: #{resource_state}"
   end
 
   status 200
-end
-
-# WebSocket endpoint for client updates
-get '/updates' do
-  if Faye::WebSocket.websocket?(request.env)
-    ws = Faye::WebSocket.new(request.env)
-
-    ws.on :open do |event|
-      connections << ws
-      puts "WebSocket connection opened"
-    end
-
-    ws.on :close do |event|
-      connections.delete(ws)
-      puts "WebSocket connection closed"
-    end
-
-    ws.rack_response
-  else
-    halt 400, 'WebSocket required'
-  end
 end
 
 # API Routes
@@ -132,10 +117,8 @@ post '/api/create_event' do
 
   result = service.insert_event(calendar_id, event)
 
-  # Broadcast WebSocket update
-  connections.each do |ws|
-    ws.send({ type: 'event_created', event: result.to_h }.to_json)
-  end
+  # Broadcast WebSocket update to Faye
+  publish_to_faye('/updates', { type: 'event_created', event: result.to_h })
 
   content_type :json
   { event_id: result.id, status: 'success' }.to_json
@@ -153,6 +136,10 @@ delete '/api/delete_event' do
   service.authorization = credentials
 
   service.delete_event(calendar_id, event_id)
+
+  # Broadcast WebSocket update to Faye
+  publish_to_faye('/updates', { type: 'event_deleted', calendar_id: calendar_id, event_id: event_id })
+
   content_type :json
   { status: 'success' }.to_json
 end
