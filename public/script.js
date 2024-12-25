@@ -51,7 +51,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.error('Error checking /api/me:', err);
   }
 
-  // Show/hide Login or Logout
+  // Show/hide Login or Logout button
   if (isLoggedIn) {
     if (logoutBtn) logoutBtn.style.display = 'inline-block';
     if (loginBtn)  loginBtn.style.display  = 'none';
@@ -72,7 +72,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // If not logged in, stop
+  // If not logged in, stop here
   if (!isLoggedIn) {
     return;
   }
@@ -98,6 +98,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function createEvent({ calendarId, title, start, end, participants }) {
+    // Calls /api/create_event with a POST
     return fetchJSON('/api/create_event', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -113,7 +114,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // Helper: local Date => "YYYY-MM-DDTHH:mm" for <input type="datetime-local">
+  // Convert a local JS Date => "YYYY-MM-DDTHH:mm" for <input type="datetime-local">
   function toLocalDateTimeInput(jsDate) {
     const year   = jsDate.getFullYear();
     const month  = String(jsDate.getMonth() + 1).padStart(2, '0');
@@ -123,13 +124,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     return `${year}-${month}-${day}T${hour}:${minute}`;
   }
 
-  // Return true if dateObj is strictly before now
+  // Return true if dateObj is strictly before "now"
   function isPast(dateObj) {
     const now = new Date();
     return dateObj < now;
   }
 
-  // Overlay click => close popup
+  // If user clicks outside the popup => close popup
   popupOverlay.addEventListener('click', () => {
     if (isPopupVisible) {
       closeEventPopup();
@@ -191,6 +192,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     lastKnownVersions[room.id] = 0;
 
+    // Initialize calendar for first room or upon tab click
     if (index === 0) {
       initCalendar(room.id);
     } else {
@@ -209,9 +211,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const calendarEl = document.getElementById(`calendar-container-${calendarId}`);
     const calendar = new FullCalendar.Calendar(calendarEl, {
       initialView: 'dayGridMonth',
-      timeZone: 'local',  // Show times in local
+      timeZone: 'local',
       height: 'auto',
-      nowIndicator: true,
+      nowIndicator: true, // red line if you switch to timeGrid views
       headerToolbar: {
         left: 'prev,next today',
         center: 'title',
@@ -226,11 +228,11 @@ document.addEventListener('DOMContentLoaded', async () => {
           failureCallback(err);
         }
       },
-      // Disallow creating in past (single day click)
+      // Single-day create, disallow if popup open or it's in the past
       dateClick: (info) => {
-        if (isPopupVisible) return; // if popup open => ignore
+        if (isPopupVisible) return;
         if (isPast(info.date)) {
-          return; // cannot create in the past
+          return;
         }
         openEventModal({
           calendarId,
@@ -238,9 +240,9 @@ document.addEventListener('DOMContentLoaded', async () => {
           end: info.date
         });
       },
+      // Multi-day drag, disallow if start is past
       selectable: true,
       selectAllow: (selectInfo) => {
-        // If user drags a range starting in the past => disallow
         if (isPast(selectInfo.start)) {
           return false;
         }
@@ -254,6 +256,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           end:   selectionInfo.end
         });
       },
+      // View existing event
       eventClick: (clickInfo) => {
         if (isPopupVisible) return;
         openEventPopup(clickInfo.event, calendarId, clickInfo.jsEvent);
@@ -271,8 +274,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Show overlay
     popupOverlay.style.display = 'block';
-
-    // Show the popup
+    // Show popup
     eventPopup.style.display = 'block';
     eventPopup.style.left = '-9999px';
     eventPopup.style.top  = '-9999px';
@@ -284,7 +286,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const rect = eventPopup.getBoundingClientRect();
     const popupWidth = rect.width;
     const popupHeight = rect.height;
-
     const vw = window.innerWidth;
     const vh = window.innerHeight;
 
@@ -304,7 +305,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const endTime   = event.end   ? new Date(event.end)   : null;
     const timeOpts  = { 
       year: 'numeric', month: 'long', day: 'numeric', 
-      hour: '2-digit', minute: '2-digit' 
+      hour: '2-digit', minute: '2-digit'
     };
 
     popupTimeStart.textContent = startTime
@@ -324,7 +325,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         eventId: event.id,
         title: event.title,
         start: event.start,
-        end:   event.end,
+        end: event.end,
         attendees
       });
       closeEventPopup();
@@ -335,7 +336,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         try {
           await deleteEvent({ calendarId, id: event.id });
 
-          // Immediately remove from FullCalendar
+          // remove from FullCalendar
           const fcEvent = calendars[calendarId]?.getEventById(event.id);
           if (fcEvent) {
             fcEvent.remove();
@@ -399,7 +400,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const guestsStr    = eventGuestsField.value;
     const participants = guestsStr.split(',').map(s => s.trim()).filter(Boolean);
 
-    // local => UTC
     const localStart = new Date(eventStartField.value);
     const localEnd   = new Date(eventEndField.value);
     const startUTC   = localStart.toISOString();
@@ -409,20 +409,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       showError('Missing required fields.');
       return;
     }
-
-    // disallow past
     if (isPast(localStart)) {
       showError('Cannot create event in the past.');
       return;
     }
 
     try {
-      // If updating (delete + create)
+      // If editing => remove old
       if (eventId) {
         await deleteEvent({ calendarId, id: eventId });
       }
 
-      // 1) create on server
+      // Create on server
       const result = await createEvent({
         calendarId,
         title,
@@ -431,20 +429,21 @@ document.addEventListener('DOMContentLoaded', async () => {
         participants
       });
 
+      // Hide modal
       eventModal.hide();
 
-      // 2) Immediately add to FullCalendar
+      // Add to FullCalendar immediately
       const localStartDate = new Date(startUTC);
       const localEndDate   = new Date(endUTC);
 
       calendars[calendarId]?.addEvent({
-        id: result.event_id,
+        id: result.event_id, // same as server => no duplicates
         title,
         start: localStartDate,
         end: localEndDate,
         attendees: participants,
         extendedProps: {
-          organizer: 'You', 
+          organizer: 'You',
           attendees: participants
         }
       });
@@ -477,6 +476,5 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // optional immediate run
   checkRoomUpdates();
 });
