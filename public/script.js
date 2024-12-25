@@ -329,15 +329,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     deleteEventBtn.onclick = async () => {
       if (confirm('Are you sure you want to delete this event?')) {
         try {
+          // 1) Call the server to delete
           await deleteEvent({ calendarId, id: event.id });
+    
+          // 2) Remove from FullCalendar immediately
+          const fcEvent = calendars[calendarId]?.getEventById(event.id);
+          if (fcEvent) {
+            fcEvent.remove(); // Removes from the calendar’s view immediately
+          }
+    
           closeEventPopup();
-          calendars[calendarId]?.refetchEvents();
+          // Optionally skip refetch to avoid flicker
+          // calendars[calendarId]?.refetchEvents();
         } catch (err) {
           console.error(err);
           showError('Failed to delete event.');
         }
       }
-    };
+    };    
 
     closePopupBtn.onclick = closeEventPopup;
   }
