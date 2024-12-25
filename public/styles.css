@@ -2,156 +2,140 @@
    Theme Variables
 ------------------------ */
 :root {
-    --primary-color: #007bff;
-    --secondary-color: #6c757d;
-    --danger-color: #dc3545;
-    --background-color: #f8f9fa;
-    --box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-    --border-radius: 8px;
-  }
-  
-  /* ------------------------
-     Global Body
-  ------------------------ */
-  body {
-    font-family: Arial, sans-serif;
-    margin: 0;
-    padding: 0;
-    background-color: var(--background-color);
-  }
-  
-  /* ------------------------
-     Error Message Box
-  ------------------------ */
-  #error {
-    display: none; /* hidden by default */
-    margin-top: 20px;
-    padding: 10px;
-    color: var(--danger-color);
-    font-size: 16px;
-    background-color: rgba(220, 53, 69, 0.1);
-    border: 1px solid var(--danger-color);
-    border-radius: var(--border-radius);
-    text-align: center;
-  }
-  
-  /* ------------------------
-     Event Popup
-  ------------------------ */
-  #eventPopup {
-    display: none;
-    position: absolute;
-    z-index: 1000;
-    background: #fff;
-    border: 1px solid #ddd;
-    border-radius: var(--border-radius);
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
-    padding: 15px;
-    min-width: 280px;
-    max-width: 340px;
-    animation: fadeIn 0.3s ease-in-out;
-  }
-  
-  /* Popup Header */
-  #popupHeader {
-    font-size: 18px;
-    font-weight: bold;
-    color: #fff;
-    background-color: var(--primary-color);
-    padding: 10px;
-    border-radius: var(--border-radius);
-    text-align: center;
-    margin: -15px -15px 10px -15px; /* extends header background edge-to-edge */
-  }
-  
-  #popupTitle {
-    margin: 0;
-  }
-  
-  /* Popup Content */
-  #popupContent p {
-    margin: 5px 0;
-    font-size: 14px;
-    color: #555;
-  }
-  
-  /* Popup Actions */
-  #popupActions {
-    display: flex;
-    gap: 10px;
-    justify-content: flex-end;
-    margin-top: 10px;
-  }
-  
-  /* ------------------------
-     Fixed Tabs
-  ------------------------ */
-  #roomTabs {
-    margin-bottom: 0;
-    display: flex;
-    gap: 10px;
-    position: fixed;
-    top: 0;
-    width: 100%;
-    background-color: #fff;
-    z-index: 1000;
-    box-shadow: var(--box-shadow);
-    padding: 0 15px;
-  }
-  
-  #roomTabContent {
-    padding: 10px;
-    margin-top: 70px; /* enough space for the fixed tabs */
-    min-height: calc(100vh - 80px);
-  }
-  
-  .nav-tabs {
-    margin-bottom: 0;
-    background: #fff;
-    border-radius: var(--border-radius);
-    box-shadow: var(--box-shadow);
-  }
-  
-  .nav-tabs .nav-link {
-    border: none;
-    color: var(--primary-color);
-    font-weight: bold;
-  }
-  
-  .nav-tabs .nav-link.active {
-    background-color: var(--primary-color);
-    color: #fff;
-    border-radius: 4px;
-  }
-  
-  .tab-content {
-    padding: 10px;
-    border: 1px solid #ddd;
-    border-radius: var(--border-radius);
-    background: #fff;
-    box-shadow: var(--box-shadow);
-  }
-  
-  /* ------------------------
-     FullCalendar Events Hover
-  ------------------------ */
-  .fc-event:hover {
-    background-color: var(--primary-color) !important;
-    color: #fff !important;
-    cursor: pointer;
-  }
-  
-  /* ------------------------
-     Fade-in Animation
-  ------------------------ */
-  @keyframes fadeIn {
-    from {
+  --primary-color: #0d6efd;       /* matches Bootstrap .bg-primary */
+  --secondary-color: #6c757d;
+  --danger-color: #dc3545;
+  --background-color: #f8f9fa;
+  --box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  --border-radius: 8px;
+  --pills-bg-color: #ffffff;  /* background color behind the tabs/pills */
+}
+
+/* ------------------------
+ Global Body
+------------------------ */
+body {
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  background-color: var(--background-color);
+}
+
+/*
+ We have a double-decker, fixed-top navbar.
+ ~120px top margin so content doesn't get hidden behind it.
+*/
+.content-below-navbar {
+  margin-top: 120px; /* adjust if your top navbar is taller/shorter */
+  padding: 20px;
+}
+
+/* ------------------------
+ Error Message Box
+------------------------ */
+#error {
+  display: none; /* hidden by default */
+  margin-top: 20px;
+  padding: 10px;
+  color: var(--danger-color);
+  font-size: 16px;
+  background-color: rgba(220, 53, 69, 0.1);
+  border: 1px solid var(--danger-color);
+  border-radius: var(--border-radius);
+  text-align: center;
+}
+
+/* ------------------------
+ Event Popup
+------------------------ */
+#eventPopup {
+  display: none;
+  position: absolute;
+  z-index: 1000;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: var(--border-radius);
+  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+  padding: 15px;
+  min-width: 280px;
+  max-width: 340px;
+  animation: fadeIn 0.3s ease-in-out;
+}
+
+/* Popup Header */
+#popupHeader {
+  font-size: 18px;
+  font-weight: bold;
+  color: #fff;
+  background-color: var(--primary-color);
+  padding: 10px;
+  border-radius: var(--border-radius);
+  text-align: center;
+  margin: -15px -15px 10px -15px; /* extends header background edge-to-edge */
+}
+
+#popupTitle {
+  margin: 0;
+}
+
+/* Popup Content */
+#popupContent p {
+  margin: 5px 0;
+  font-size: 14px;
+  color: #555;
+}
+
+/* Popup Actions */
+#popupActions {
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin-top: 10px;
+}
+
+/* ------------------------
+ FullCalendar Events Hover
+------------------------ */
+.fc-event:hover {
+  background-color: var(--primary-color) !important;
+  color: #fff !important;
+  cursor: pointer;
+}
+
+/* ------------------------
+ Fade-in Animation
+------------------------ */
+@keyframes fadeIn {
+  from {
       opacity: 0;
       transform: translateY(-10px);
-    }
-    to {
+  }
+  to {
       opacity: 1;
       transform: translateY(0);
-    }
   }
-  
+}
+
+/* ------------------------
+ Custom Nav-Pills Styles
+------------------------ */
+.nav-pills .nav-link {
+  border-radius: var(--border-radius);
+  margin: 0 5px; /* small spacing between pills */
+  font-weight: 500;
+  color: #495057; 
+  background-color: #e9ecef; /* default pill background */
+}
+
+.nav-pills .nav-link:hover {
+  background-color: #dfe3e8; /* hover effect */
+  color: #333;
+}
+
+.nav-pills .nav-link.active {
+  background-color: #ffc107; /* bright accent for active tab */
+  color: #212529;
+  box-shadow: var(--box-shadow);
+  border: 1px solid #ffc107;
+  font-weight: 600;
+}
