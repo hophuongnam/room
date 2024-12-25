@@ -2,95 +2,65 @@ document.addEventListener('DOMContentLoaded', async () => {
   /* ------------------------------------------------------------------
      1) DOM References
   ------------------------------------------------------------------ */
-  const loginBtn        = document.getElementById('loginBtn');
-  const logoutBtn       = document.getElementById('logoutBtn');
-  const errorDiv        = document.getElementById('error');
+  const loginBtn         = document.getElementById('loginBtn');
+  const logoutBtn        = document.getElementById('logoutBtn');
+  const errorAlert       = document.getElementById('errorAlert');
+  const loadingSpinner   = document.getElementById('loadingSpinner');
 
-  // Tabs
-  const roomTabs        = document.getElementById('roomTabs');
-  const roomTabContent  = document.getElementById('roomTabContent');
+  // Rooms dropdown
+  const roomDropdown     = document.getElementById('roomDropdown');        // <a> tag
+  const roomDropdownMenu = document.getElementById('roomDropdownMenu');    // <ul>
 
-  // Popup Overlay & Popup
-  const popupOverlay    = document.getElementById('popupOverlay');
-  const eventPopup      = document.getElementById('eventPopup');
-  const popupTitle      = document.getElementById('popupTitle');
-  const popupTimeStart  = document.getElementById('popupTimeStart');
-  const popupTimeEnd    = document.getElementById('popupTimeEnd');
-  const popupOrganizer  = document.getElementById('popupOrganizer');
-  const popupAttendees  = document.getElementById('popupAttendees');
+  // Calendar Container
+  const calendarContainer = document.getElementById('calendarContainer');
 
-  const editEventBtn    = document.getElementById('editEvent');
-  const deleteEventBtn  = document.getElementById('deleteEvent');
-  const closePopupBtn   = document.getElementById('closePopup');
+  // View Event Modal + elements
+  const viewEventModal         = new bootstrap.Modal(document.getElementById('viewEventModal'));
+  const viewEventTitle         = document.getElementById('viewEventTitle');
+  const viewEventStart         = document.getElementById('viewEventStart');
+  const viewEventEnd           = document.getElementById('viewEventEnd');
+  const viewEventOrganizer     = document.getElementById('viewEventOrganizer');
+  const viewEventAttendees     = document.getElementById('viewEventAttendees');
+  const viewEventEditBtn       = document.getElementById('viewEventEditBtn');
+  const viewEventDeleteBtn     = document.getElementById('viewEventDeleteBtn');
 
-  // Modal references
-  const eventModal      = new bootstrap.Modal(document.getElementById('eventModal'));
-  const eventForm       = document.getElementById('eventForm');
-  const calendarIdField = document.getElementById('calendarId');
-  const eventIdField    = document.getElementById('eventId');
-  const eventTitleField = document.getElementById('eventTitle');
-  const eventStartField = document.getElementById('eventStart');
-  const eventEndField   = document.getElementById('eventEnd');
-  const eventGuestsField= document.getElementById('eventGuests');
-
-  // Track state
-  let isPopupVisible    = false;
-  const calendars       = {};      // { calendarId: FullCalendar instance }
-  const lastKnownVersions = {};    // { calendarId: number }
-
-  // We'll store the current user’s email so we can check permissions
-  let currentUserEmail = null;
+  // Create/Edit Event Modal
+  const eventModal             = new bootstrap.Modal(document.getElementById('eventModal'));
+  const eventForm              = document.getElementById('eventForm');
+  const calendarIdField        = document.getElementById('calendarId');
+  const eventIdField           = document.getElementById('eventId');
+  const eventTitleField        = document.getElementById('eventTitle');
+  const eventStartField        = document.getElementById('eventStart');
+  const eventEndField          = document.getElementById('eventEnd');
+  const eventGuestsField       = document.getElementById('eventGuests');
 
   /* ------------------------------------------------------------------
-     2) Check if user is logged in
+     2) State Variables
   ------------------------------------------------------------------ */
-  let isLoggedIn = false;
-  try {
-    const meRes = await fetch('/api/me');
-    if (meRes.status === 200) {
-      const meData = await meRes.json();
-      currentUserEmail = meData.email;  // store user’s email
-      isLoggedIn = true;
-    }
-  } catch (err) {
-    console.error('Error checking /api/me:', err);
-  }
+  let currentUserEmail   = null;
+  let isLoggedIn         = false;
+  let currentRoomId      = null;
+  const calendars        = {}; // { calendarId: FullCalendar instance }
+  const lastKnownVersions= {}; // { calendarId: number }
 
-  // Show/hide Login or Logout
-  if (isLoggedIn) {
-    if (logoutBtn) logoutBtn.style.display = 'inline-block';
-    if (loginBtn)  loginBtn.style.display  = 'none';
-  } else {
-    if (logoutBtn) logoutBtn.style.display = 'none';
-    if (loginBtn)  loginBtn.style.display  = 'inline-block';
-  }
-
-  // Login/Logout handlers
-  if (loginBtn) {
-    loginBtn.addEventListener('click', () => {
-      window.location.href = '/login';
-    });
-  }
-  if (logoutBtn) {
-    logoutBtn.addEventListener('click', () => {
-      window.location.href = '/logout';
-    });
-  }
-
-  // If not logged in, stop here
-  if (!isLoggedIn) {
-    return;
-  }
+  // We'll also store a map of room IDs => room summaries
+  const roomMap = {};   // e.g., { "abc123@group.calendar.google.com": "Room A", ... }
 
   /* ------------------------------------------------------------------
      3) Helper Functions
   ------------------------------------------------------------------ */
   function showError(msg) {
-    errorDiv.textContent = msg;
-    errorDiv.style.display = 'block';
+    errorAlert.textContent = msg;
+    errorAlert.classList.remove('d-none');
   }
   function hideError() {
-    errorDiv.style.display = 'none';
+    errorAlert.classList.add('d-none');
+  }
+  function showSpinner() {
+    loadingSpinner.classList.remove('d-none');
+  }
+  function hideSpinner() {
+    loadingSpinner.classList.add('d-none');
   }
 
   async function fetchJSON(url, options = {}) {
@@ -118,7 +88,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // Convert a local JS Date => "YYYY-MM-DDTHH:mm" for <input type="datetime-local">
   function toLocalDateTimeInput(jsDate) {
     const year   = jsDate.getFullYear();
     const month  = String(jsDate.getMonth() + 1).padStart(2, '0');
@@ -129,25 +98,52 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function isPast(dateObj) {
-    const now = new Date();
-    return dateObj < now;
+    return dateObj < new Date();
   }
 
-  // If user clicks outside the popup => close popup
-  popupOverlay.addEventListener('click', () => {
-    if (isPopupVisible) {
-      closeEventPopup();
+  /* ------------------------------------------------------------------
+     4) Check if user is logged in
+  ------------------------------------------------------------------ */
+  try {
+    const meRes = await fetch('/api/me');
+    if (meRes.status === 200) {
+      const meData = await meRes.json();
+      currentUserEmail = meData.email;
+      isLoggedIn = true;
     }
+  } catch (err) {
+    console.error('Error checking /api/me:', err);
+  }
+
+  // Show/hide Login or Logout
+  if (isLoggedIn) {
+    logoutBtn.style.display = 'inline-block';
+    loginBtn.style.display  = 'none';
+  } else {
+    logoutBtn.style.display = 'none';
+    loginBtn.style.display  = 'inline-block';
+  }
+
+  // Login/Logout handlers
+  loginBtn?.addEventListener('click', () => {
+    window.location.href = '/login';
+  });
+  logoutBtn?.addEventListener('click', () => {
+    window.location.href = '/logout';
   });
 
+  // If not logged in, stop here
+  if (!isLoggedIn) {
+    return;
+  }
+
   /* ------------------------------------------------------------------
-     4) Fetch Rooms
+     5) Fetch Rooms
   ------------------------------------------------------------------ */
   let rooms = [];
   try {
     const data = await fetchJSON('/api/rooms');
     rooms = data.rooms || [];
-    hideError();
   } catch (err) {
     console.error(err);
     showError('Failed to load rooms.');
@@ -159,60 +155,58 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  /* ------------------------------------------------------------------
-     5) Create Tabs for Each Room
-  ------------------------------------------------------------------ */
+  // Populate the dropdown & store in roomMap
   rooms.forEach((room, index) => {
-    const tabId   = `tab-${room.id}`;
-    const paneId  = `pane-${room.id}`;
-    const li      = document.createElement('li');
-    li.className  = 'nav-item';
+    const li = document.createElement('li');
+    const link = document.createElement('a');
+    link.className = 'dropdown-item';
+    link.href = '#';
+    link.textContent = room.summary; // This is the room name displayed in the dropdown
+    link.addEventListener('click', () => {
+      selectRoom(room.id);
+    });
 
-    li.innerHTML = `
-      <button 
-        class="nav-link ${index === 0 ? 'active' : ''}"
-        id="${tabId}"
-        data-bs-toggle="tab"
-        data-bs-target="#${paneId}"
-        type="button"
-        role="tab"
-      >
-        ${room.summary}
-      </button>
-    `;
-    roomTabs.appendChild(li);
+    li.appendChild(link);
+    roomDropdownMenu.appendChild(li);
 
-    const pane = document.createElement('div');
-    pane.className = `tab-pane fade ${index === 0 ? 'show active' : ''}`;
-    pane.id = paneId;
-    pane.innerHTML = `
-      <div 
-        id="calendar-container-${room.id}" 
-        style="height:100%; min-height:600px;"
-      ></div>
-    `;
-    roomTabContent.appendChild(pane);
+    // Add to our roomMap
+    roomMap[room.id] = room.summary;
 
-    lastKnownVersions[room.id] = 0;
-
-    // Initialize calendar for first room or upon tab click
+    // Auto-select the first room on page load
     if (index === 0) {
-      initCalendar(room.id);
-    } else {
-      document.getElementById(tabId).addEventListener('click', () => {
-        if (!calendars[room.id]) {
-          initCalendar(room.id);
-        }
-      });
+      selectRoom(room.id);
     }
   });
 
   /* ------------------------------------------------------------------
-     6) FullCalendar Initialization
+     6) Select Room => Update Dropdown Text & Load Calendar
+  ------------------------------------------------------------------ */
+  function selectRoom(roomId) {
+    if (currentRoomId === roomId) return; // no change
+    currentRoomId = roomId;
+    hideError();
+    showSpinner();
+
+    // IMPORTANT: Update the dropdown toggle text to the *current room's* name
+    roomDropdown.textContent = roomMap[roomId];
+
+    // Initialize (or refetch) the calendar
+    initCalendar(roomId);
+  }
+
+  /* ------------------------------------------------------------------
+     7) Initialize FullCalendar for a Given Room
   ------------------------------------------------------------------ */
   function initCalendar(calendarId) {
-    const calendarEl = document.getElementById(`calendar-container-${calendarId}`);
-    const calendar = new FullCalendar.Calendar(calendarEl, {
+    // If we already have a calendar object for this room, refetch events
+    if (calendars[calendarId]) {
+      calendars[calendarId].refetchEvents();
+      hideSpinner();
+      return;
+    }
+
+    // Otherwise, create a new calendar
+    const calendar = new FullCalendar.Calendar(calendarContainer, {
       timeZone: 'local',
       height: 'auto',
       nowIndicator: true,
@@ -231,13 +225,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         } catch (err) {
           console.error(err);
           failureCallback(err);
+          showError('Failed to load events.');
+        } finally {
+          hideSpinner();
         }
       },
       dateClick: (info) => {
-        if (isPopupVisible) return;
-        if (isPast(info.date)) {
-          return;
-        }
+        if (isPast(info.date)) return;
         openEventModal({
           calendarId,
           start: info.date,
@@ -246,13 +240,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       },
       selectable: true,
       selectAllow: (selectInfo) => {
-        if (isPast(selectInfo.start)) {
-          return false;
-        }
+        if (isPast(selectInfo.start)) return false;
         return true;
       },
       select: (selectionInfo) => {
-        if (isPopupVisible) return;
         openEventModal({
           calendarId,
           start: selectionInfo.start,
@@ -260,8 +251,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
       },
       eventClick: (clickInfo) => {
-        if (isPopupVisible) return;
-        openEventPopup(clickInfo.event, calendarId, clickInfo.jsEvent);
+        openViewEventModal(clickInfo.event, calendarId);
       },
     });
     calendar.render();
@@ -269,102 +259,51 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   /* ------------------------------------------------------------------
-     7) Popup Logic (View Existing Event)
+     8) View Existing Event (Bootstrap Modal)
   ------------------------------------------------------------------ */
-  function openEventPopup(event, calendarId, jsEvent) {
-    isPopupVisible = true;
-  
-    // Show the overlay
-    popupOverlay.style.display = 'block';
-    // Temporarily place the popup off-screen
-    eventPopup.style.display = 'block';
-    eventPopup.style.left = '-9999px';
-    eventPopup.style.top  = '-9999px';
-  
-    // Fill popup content (same as before)
-    popupTitle.textContent = event.title || 'Untitled';
-  
+  let currentEventId = null; // store the event ID being viewed
+
+  function openViewEventModal(event, calendarId) {
+    hideError();
+
+    // Store for delete/edit reference
+    currentEventId = event.id;
+
+    // Fill the fields
+    viewEventTitle.textContent = event.title || 'Untitled';
     const startTime = event.start ? new Date(event.start) : null;
     const endTime   = event.end   ? new Date(event.end)   : null;
-    const timeOpts  = { 
+    const formatOptions = { 
       year: 'numeric', month: 'long', day: 'numeric',
       hour: '2-digit', minute: '2-digit'
     };
-  
-    popupTimeStart.textContent = startTime
-      ? startTime.toLocaleString(undefined, timeOpts)
+    viewEventStart.textContent = startTime
+      ? startTime.toLocaleString(undefined, formatOptions)
       : 'N/A';
-    popupTimeEnd.textContent   = endTime
-      ? endTime.toLocaleString(undefined, timeOpts)
+    viewEventEnd.textContent   = endTime
+      ? endTime.toLocaleString(undefined, formatOptions)
       : 'N/A';
-  
-    popupOrganizer.textContent = event.extendedProps?.organizer || '';
+
+    const organizer = event.extendedProps?.organizer || '';
+    viewEventOrganizer.textContent = organizer;
     const attendees = event.extendedProps?.attendees || event.attendees || [];
-    popupAttendees.textContent = Array.isArray(attendees) ? attendees.join(', ') : '';
-  
-    // Permission check
+    viewEventAttendees.textContent = Array.isArray(attendees) ? attendees.join(', ') : '';
+
+    // Check permission: can edit or delete if user is organizer or attendee
     const canEditOrDelete = (
       attendees.includes(currentUserEmail) ||
-      event.extendedProps?.organizer === currentUserEmail
+      organizer === currentUserEmail
     );
-    if (canEditOrDelete) {
-      editEventBtn.style.display = 'inline-block';
-      deleteEventBtn.style.display = 'inline-block';
-    } else {
-      editEventBtn.style.display = 'none';
-      deleteEventBtn.style.display = 'none';
-    }
-  
-    // Measure the navbar's height (assuming id="mainNavbar")
-    const navbar = document.getElementById('mainNavbar');
-    const navbarHeight = navbar ? navbar.offsetHeight : 70; // fallback
-  
-    // We pick a small offset so the popup is not too far from the click
-    const offset = 5;
-  
-    // Instead of jsEvent.pageX/Y, use clientX/Y for position in viewport
-    // Then add the scroll offset to position in the full document
-    let popupLeft = jsEvent.clientX + window.scrollX + offset;
-    let popupTop  = jsEvent.clientY + window.scrollY + offset;
-  
-    // Temporarily apply to measure actual popup size
-    eventPopup.style.left = `${popupLeft}px`;
-    eventPopup.style.top  = `${popupTop}px`;
-  
-    const rect = eventPopup.getBoundingClientRect();
-    const popupWidth = rect.width;
-    const popupHeight = rect.height;
-  
-    // Visible viewport width/height
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-  
-    // Adjust for right edge
-    if (popupLeft + popupWidth > window.scrollX + vw) {
-      popupLeft = window.scrollX + vw - popupWidth - offset;
-    }
-    // Adjust for bottom edge
-    if (popupTop + popupHeight > window.scrollY + vh) {
-      popupTop = (window.scrollY + vh) - popupHeight - offset;
-    }
-  
-    // Adjust for left edge
-    if (popupLeft < window.scrollX + offset) {
-      popupLeft = window.scrollX + offset;
-    }
-    // Adjust for top edge, ensuring we stay below the navbar
-    const minTop = (window.scrollY + navbarHeight + offset);
-    if (popupTop < minTop) {
-      popupTop = minTop;
-    }
-  
-    // Apply final positioning
-    eventPopup.style.left = `${popupLeft}px`;
-    eventPopup.style.top  = `${popupTop}px`;
-  
-    // Button handlers
-    editEventBtn.onclick = () => {
+    viewEventEditBtn.style.display   = canEditOrDelete ? 'inline-block' : 'none';
+    viewEventDeleteBtn.style.display = canEditOrDelete ? 'inline-block' : 'none';
+
+    // Show the modal
+    viewEventModal.show();
+
+    // Edit button
+    viewEventEditBtn.onclick = () => {
       if (canEditOrDelete) {
+        // Open the create/edit modal with the event data
         openEventModal({
           calendarId,
           eventId: event.id,
@@ -374,42 +313,36 @@ document.addEventListener('DOMContentLoaded', async () => {
           attendees
         });
       }
-      closeEventPopup();
+      viewEventModal.hide();
     };
-  
-    deleteEventBtn.onclick = async () => {
+
+    // Delete button
+    viewEventDeleteBtn.onclick = async () => {
       if (!canEditOrDelete) return;
-      if (confirm('Are you sure you want to delete this event?')) {
-        try {
-          await deleteEvent({ calendarId, id: event.id });
-          // remove from FullCalendar
-          const fcEvent = calendars[calendarId]?.getEventById(event.id);
-          if (fcEvent) {
-            fcEvent.remove();
-          }
-          closeEventPopup();
-        } catch (err) {
-          console.error(err);
-          showError('Failed to delete event.');
+      const confirmDelete = confirm('Are you sure you want to delete this event?');
+      if (!confirmDelete) return;
+
+      try {
+        await deleteEvent({ calendarId, id: event.id });
+        // remove from FullCalendar
+        const fcEvent = calendars[calendarId]?.getEventById(event.id);
+        if (fcEvent) {
+          fcEvent.remove();
         }
+        viewEventModal.hide();
+      } catch (err) {
+        console.error(err);
+        showError('Failed to delete event.');
       }
     };
-  
-    closePopupBtn.onclick = closeEventPopup;
-  }  
-
-  function closeEventPopup() {
-    // Hide overlay
-    popupOverlay.style.display = 'none';
-    // Hide popup
-    eventPopup.style.display = 'none';
-    isPopupVisible = false;
   }
 
   /* ------------------------------------------------------------------
-     8) Modal Logic (Create/Edit)
+     9) Create/Edit Modal Logic
   ------------------------------------------------------------------ */
   function openEventModal({ calendarId, eventId, title, start, end, attendees }) {
+    hideError();
+
     calendarIdField.value = calendarId || '';
     eventIdField.value    = eventId    || '';
     eventTitleField.value = title      || '';
@@ -455,12 +388,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
     if (isPast(localStart)) {
-      showError('Cannot create event in the past.');
+      showError('Cannot create an event in the past.');
+      return;
+    }
+    if (localEnd <= localStart) {
+      showError('End time must be after start time.');
       return;
     }
 
+    showSpinner();
+
     try {
-      // If editing => remove old
+      // If editing => remove old event first
       if (eventId) {
         await deleteEvent({ calendarId, id: eventId });
       }
@@ -474,18 +413,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         participants
       });
 
-      // Hide modal
       eventModal.hide();
 
       // Immediately add to FullCalendar
-      const localStartDate = new Date(startUTC);
-      const localEndDate   = new Date(endUTC);
-
       calendars[calendarId]?.addEvent({
-        id: result.event_id, // same as server => no duplicates
+        id: result.event_id,
         title,
-        start: localStartDate,
-        end: localEndDate,
+        start: localStart,
+        end: localEnd,
         attendees: participants,
         extendedProps: {
           organizer: currentUserEmail,
@@ -496,11 +431,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch (err) {
       console.error(err);
       showError('Failed to save event.');
+    } finally {
+      hideSpinner();
     }
   });
 
   /* ------------------------------------------------------------------
-     9) Polling for Room Updates
+     10) Polling for Room Updates
   ------------------------------------------------------------------ */
   setInterval(checkRoomUpdates, 30000);
 
@@ -521,5 +458,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  // Initial check
   checkRoomUpdates();
 });

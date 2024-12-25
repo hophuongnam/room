@@ -2,154 +2,64 @@
    Theme Variables
 ------------------------ */
 :root {
-  --primary-color: #0d6efd;       /* matches Bootstrap .bg-primary */
-  --secondary-color: #6c757d;
-  --danger-color: #dc3545;
-  --background-color: #f8f9fa;
-  --box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-  --border-radius: 8px;
-  --pills-bg-color: #ffffff;  /* background color behind the tabs/pills */
-}
-
-/* ------------------------
-   Global Body
------------------------- */
-body {
-  font-family: 'Helvetica Neue', Arial, sans-serif;
-  margin: 0;
-  padding: 0;
-  background-color: var(--background-color);
-}
-
-/*
-   We have a double-decker, fixed-top navbar.
-   ~120px top margin so content doesn't get hidden behind it.
-*/
-.content-below-navbar {
-  margin-top: 120px; /* adjust if your navbar is taller/shorter */
-  padding: 20px;
-}
-
-/* ------------------------
-   Error Message Box
------------------------- */
-#error {
-  display: none; /* hidden by default */
-  margin-top: 20px;
-  padding: 10px;
-  color: var(--danger-color);
-  font-size: 16px;
-  background-color: rgba(220, 53, 69, 0.1);
-  border: 1px solid var(--danger-color);
-  border-radius: var(--border-radius);
-  text-align: center;
-}
-
-/* ------------------------
-   Popup Overlay
------------------------- */
-#popupOverlay {
-  display: none;            /* hidden by default */
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  background: rgba(0,0,0,0.3);  /* translucent dark overlay */
-  z-index: 999;             /* behind #eventPopup, which is at 1000 */
-}
-
-/* ------------------------
-   Event Popup
------------------------- */
-#eventPopup {
-  display: none;
-  position: absolute;
-  z-index: 1000;  /* higher than #popupOverlay */
-  background: #fff;
-  border: 1px solid #ddd;
-  border-radius: var(--border-radius);
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
-  padding: 15px;
-  min-width: 280px;
-  max-width: 340px;
-  animation: fadeIn 0.3s ease-in-out;
-}
-
-/* Popup Header */
-#popupHeader {
-  font-size: 18px;
-  font-weight: bold;
-  color: #fff;
-  background-color: var(--primary-color);
-  padding: 10px;
-  border-radius: var(--border-radius);
-  text-align: center;
-  margin: -15px -15px 10px -15px; /* extends header background edge-to-edge */
-}
-
-#popupTitle {
-  margin: 0;
-}
-
-/* Popup Content */
-#popupContent p {
-  margin: 5px 0;
-  font-size: 14px;
-  color: #555;
-}
-
-/* Popup Actions */
-#popupActions {
-  display: flex;
-  gap: 10px;
-  justify-content: flex-end;
-  margin-top: 10px;
-}
-
-/* ------------------------
-   FullCalendar Events Hover
------------------------- */
-.fc-event:hover {
-  background-color: var(--primary-color) !important;
-  color: #fff !important;
-  cursor: pointer;
-}
-
-/* ------------------------
-   Fade-in Animation
------------------------- */
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-/* ------------------------
-   Custom Nav-Pills Styles
------------------------- */
-.nav-pills .nav-link {
-  border-radius: var(--border-radius);
-  margin: 0 5px; /* small spacing between pills */
-  font-weight: 500;
-  color: #495057; 
-  background-color: #e9ecef; /* default pill background */
-}
-
-.nav-pills .nav-link:hover {
-  background-color: #dfe3e8; /* hover effect */
-  color: #333;
-}
-
-.nav-pills .nav-link.active {
-  background-color: #ffc107; /* bright accent for active tab */
-  color: #212529;
-  box-shadow: var(--box-shadow);
-  border: 1px solid #ffc107;
-  font-weight: 600;
-}
+   --primary-color: #0d6efd;       /* matches Bootstrap .bg-primary */
+   --secondary-color: #6c757d;
+   --danger-color: #dc3545;
+   --background-color: #f8f9fa;
+   --box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+   --border-radius: 8px;
+   --pills-bg-color: #ffffff;  
+ }
+ 
+ /* ------------------------
+    Global Body
+ ------------------------ */
+ body {
+   font-family: 'Helvetica Neue', Arial, sans-serif;
+   margin: 0;
+   padding: 0;
+   background-color: var(--background-color);
+ }
+ 
+ /* 
+    Single fixed-top navbar => ~80px top margin 
+    so content doesn't get hidden behind it.
+ */
+ .content-below-navbar {
+   margin-top: 80px; /* adjust as needed */
+   padding: 20px;
+ }
+ 
+ /* ------------------------
+    Error Alert
+ ------------------------ */
+ .alert {
+   margin-bottom: 20px;
+ }
+ 
+ /* ------------------------
+    Spinner
+ ------------------------ */
+ #loadingSpinner {
+   position: absolute;
+   top: 50%;
+   left: 50%;
+   transform: translate(-50%, -50%);
+ }
+ /* By default hidden with .d-none */
+ 
+ /* ------------------------
+    FullCalendar
+ ------------------------ */
+ .fc-event:hover {
+   background-color: var(--primary-color) !important;
+   color: #fff !important;
+   cursor: pointer;
+ }
+ 
+ /* ------------------------
+    Modals
+ ------------------------ */
+ /* The modals are standard Bootstrap. 
+    If you want to add custom styling, do so here. */
+ 

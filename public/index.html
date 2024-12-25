@@ -17,120 +17,166 @@
   <!-- Custom CSS (styles.css) -->
   <link rel="stylesheet" href="styles.css" />
 </head>
-
 <body>
-  <!-- 
-       A two-line, fixed-top Bootstrap navbar. 
-       The first line: Title + Login/Logout 
-       The second line: Room tabs (nav-pills)
-  -->
+
+  <!-- Single-Line Navbar with Dropdown -->
   <nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top shadow" id="mainNavbar">
-    <div class="container-fluid flex-column p-2">
-      
-      <!-- First line (brand + login/logout) -->
-      <div class="d-flex w-100 justify-content-between align-items-center">
-        <span class="navbar-brand h1 mb-0">Meeting Room Reservation</span>
+    <div class="container-fluid">
+      <a class="navbar-brand" href="#">Meeting Room Reservation</a>
+
+      <!-- Navbar Toggler (for mobile) -->
+      <button 
+        class="navbar-toggler" 
+        type="button" 
+        data-bs-toggle="collapse" 
+        data-bs-target="#navbarSupportedContent"
+        aria-controls="navbarSupportedContent" 
+        aria-expanded="false" 
+        aria-label="Toggle navigation"
+      >
+        <span class="navbar-toggler-icon"></span>
+      </button>
+
+      <div class="collapse navbar-collapse" id="navbarSupportedContent">
+        <!-- Rooms Dropdown -->
+        <ul class="navbar-nav me-auto mb-2 mb-lg-0">
+          <li class="nav-item dropdown">
+            <!-- IMPORTANT: Instead of static text 'Select Room', leave it blank or put a placeholder.
+                 We'll update it dynamically in script.js once we know which room is selected. -->
+            <a 
+              class="nav-link dropdown-toggle" 
+              href="#" 
+              id="roomDropdown" 
+              role="button" 
+              data-bs-toggle="dropdown" 
+              aria-expanded="false"
+            >
+              <!-- initially blank; will be updated in script.js -->
+            </a>
+            <ul class="dropdown-menu" aria-labelledby="roomDropdown" id="roomDropdownMenu">
+              <!-- script.js will populate each room as <li><a ...>Room Name</a></li> -->
+            </ul>
+          </li>
+        </ul>
+
+        <!-- Login/Logout -->
         <div class="d-flex">
           <button id="loginBtn" class="btn btn-light me-2">Login</button>
           <button id="logoutBtn" class="btn btn-outline-light" style="display: none;">Logout</button>
         </div>
       </div>
-
-      <!-- Second line (room tabs) -->
-      <div class="mt-3 p-2" style="background-color: var(--pills-bg-color); border-radius: var(--border-radius);">
-        <ul class="nav nav-pills justify-content-center" id="roomTabs" role="tablist" style="border-bottom: 0;">
-          <!-- script.js inserts your room tabs here as <li><button>...</button></li> -->
-        </ul>
-      </div>
     </div>
   </nav>
 
-  <!-- Main content area, below the two-line fixed navbar -->
-  <div class="content-below-navbar">
-    
-    <!-- Tab Content for the rooms -->
-    <div class="tab-content" id="roomTabContent"></div>
+  <!-- Main content area -->
+  <div class="content-below-navbar container-fluid">
+    <!-- Error Alert (hidden by default) -->
+    <div class="alert alert-danger d-none" role="alert" id="errorAlert"></div>
 
-    <!-- Error Message -->
-    <div id="error"></div>
-
-    <!-- 
-         Overlay: covers entire screen behind event popup. 
-         We'll show/hide it in script.js by setting style.display = 'block' or 'none'.
-         When user clicks it, it closes the popup. 
-    -->
-    <div id="popupOverlay"></div>
-
-    <!-- Event Popup -->
-    <div id="eventPopup">
-      <div id="popupHeader">
-        <span id="popupTitle">Event Title</span>
-      </div>
-      <div id="popupContent">
-        <p><strong>Time Start:</strong> <span id="popupTimeStart"></span></p>
-        <p><strong>Time End:</strong> <span id="popupTimeEnd"></span></p>
-        <p><strong>Organizer:</strong> <span id="popupOrganizer"></span></p>
-        <p><strong>Attendees:</strong> <span id="popupAttendees"></span></p>
-      </div>
-      <div id="popupActions">
-        <button id="editEvent" class="btn btn-primary btn-sm">Edit</button>
-        <button id="deleteEvent" class="btn btn-danger btn-sm">Delete</button>
-        <button id="closePopup" class="btn btn-secondary btn-sm">Close</button>
-      </div>
+    <!-- Loading Spinner (hidden by default) -->
+    <div id="loadingSpinner" class="spinner-border text-primary d-none" role="status">
+      <span class="visually-hidden">Loading...</span>
     </div>
 
-    <!-- Bootstrap Modal for Create/Edit Event -->
-    <div 
-      class="modal fade" 
-      id="eventModal" 
-      tabindex="-1" 
-      aria-labelledby="eventModalLabel" 
-      aria-hidden="true">
-      <div class="modal-dialog">
-        <div class="modal-content">
-          <form id="eventForm">
-            <div class="modal-header">
-              <h5 class="modal-title" id="eventModalLabel">Create/Edit Event</h5>
-              <button 
-                type="button" 
-                class="btn-close" 
-                data-bs-dismiss="modal" 
-                aria-label="Close">
-              </button>
-            </div>
-            <div class="modal-body">
-              <input type="hidden" id="eventId" />
-              <input type="hidden" id="calendarId" />
+    <!-- Calendar Container -->
+    <div id="calendarContainer" style="min-height: 600px;"></div>
+  </div>
 
-              <div class="mb-3">
-                <label for="eventTitle" class="form-label">Event Title</label>
-                <input type="text" class="form-control" id="eventTitle" required />
-              </div>
-
-              <div class="mb-3">
-                <label for="eventStart" class="form-label">Start Time</label>
-                <input type="datetime-local" class="form-control" id="eventStart" required />
-              </div>
-
-              <div class="mb-3">
-                <label for="eventEnd" class="form-label">End Time</label>
-                <input type="datetime-local" class="form-control" id="eventEnd" required />
-              </div>
-
-              <div class="mb-3">
-                <label for="eventGuests" class="form-label">Invite Participants (comma-separated emails)</label>
-                <input type="text" class="form-control" id="eventGuests" />
-              </div>
-            </div>
-            <div class="modal-footer">
-              <button type="submit" class="btn btn-primary">Save Event</button>
-            </div>
-          </form>
+  <!-- Bootstrap Modal for Viewing Event Details -->
+  <div 
+    class="modal fade" 
+    id="viewEventModal" 
+    tabindex="-1" 
+    aria-labelledby="viewEventModalLabel" 
+    aria-hidden="true"
+  >
+    <div class="modal-dialog">
+      <div class="modal-content">
+        
+        <div class="modal-header bg-primary text-white">
+          <h5 class="modal-title" id="viewEventModalLabel">Event Details</h5>
+          <button 
+            type="button" 
+            class="btn-close btn-close-white" 
+            data-bs-dismiss="modal" 
+            aria-label="Close"
+          ></button>
+        </div>
+        
+        <div class="modal-body">
+          <p><strong>Title:</strong> <span id="viewEventTitle"></span></p>
+          <p><strong>Start:</strong> <span id="viewEventStart"></span></p>
+          <p><strong>End:</strong> <span id="viewEventEnd"></span></p>
+          <p><strong>Organizer:</strong> <span id="viewEventOrganizer"></span></p>
+          <p><strong>Attendees:</strong> <span id="viewEventAttendees"></span></p>
+        </div>
+        
+        <div class="modal-footer">
+          <button id="viewEventEditBtn" class="btn btn-primary">Edit</button>
+          <button id="viewEventDeleteBtn" class="btn btn-danger">Delete</button>
+          <button 
+            type="button" 
+            class="btn btn-secondary" 
+            data-bs-dismiss="modal"
+          >Close</button>
         </div>
       </div>
     </div>
+  </div>
 
-  </div> <!-- /.content-below-navbar -->
+  <!-- Bootstrap Modal for Create/Edit Event -->
+  <div 
+    class="modal fade" 
+    id="eventModal" 
+    tabindex="-1" 
+    aria-labelledby="eventModalLabel" 
+    aria-hidden="true"
+  >
+    <div class="modal-dialog">
+      <div class="modal-content">
+        <form id="eventForm">
+          <div class="modal-header bg-primary text-white">
+            <h5 class="modal-title" id="eventModalLabel">Create/Edit Event</h5>
+            <button 
+              type="button" 
+              class="btn-close btn-close-white" 
+              data-bs-dismiss="modal" 
+              aria-label="Close"
+            ></button>
+          </div>
+          <div class="modal-body">
+            <input type="hidden" id="eventId" />
+            <input type="hidden" id="calendarId" />
+
+            <div class="mb-3">
+              <label for="eventTitle" class="form-label">Event Title</label>
+              <input type="text" class="form-control" id="eventTitle" required />
+            </div>
+
+            <!-- Start/End times on one row (optional) -->
+            <div class="row">
+              <div class="col-md-6 mb-3">
+                <label for="eventStart" class="form-label">Start Time</label>
+                <input type="datetime-local" class="form-control" id="eventStart" required />
+              </div>
+              <div class="col-md-6 mb-3">
+                <label for="eventEnd" class="form-label">End Time</label>
+                <input type="datetime-local" class="form-control" id="eventEnd" required />
+              </div>
+            </div>
+
+            <div class="mb-3">
+              <label for="eventGuests" class="form-label">Invite Participants (comma-separated emails)</label>
+              <input type="text" class="form-control" id="eventGuests" />
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="submit" class="btn btn-primary">Save Event</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
 
   <!-- Bootstrap JS Bundle -->
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
