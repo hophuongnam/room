@@ -16,6 +16,17 @@
 </head>
 
 <body>
+  <!-- A Bootstrap navbar with left title and right Login/Logout buttons -->
+  <nav class="navbar navbar-expand-lg navbar-light bg-light">
+    <div class="container-fluid">
+      <span class="navbar-brand mb-0 h1">Meeting Room Reservation</span>
+      <div class="d-flex">
+        <button id="loginBtn" class="btn btn-primary me-2">Login</button>
+        <button id="logoutBtn" class="btn btn-secondary" style="display: none;">Logout</button>
+      </div>
+    </div>
+  </nav>
+
   <!-- Tabs -->
   <ul class="nav nav-tabs" id="roomTabs" role="tablist"></ul>
 
@@ -33,24 +44,10 @@
       <span id="popupTitle">Event Title</span>
     </div>
     <div id="popupContent">
-
-      <!-- New layout with separate lines/labels for start/end/organizer/attendees -->
-      <p>
-        <strong>Time Start:</strong> 
-        <span id="popupTimeStart"></span>
-      </p>
-      <p>
-        <strong>Time End:</strong>
-        <span id="popupTimeEnd"></span>
-      </p>
-      <p>
-        <strong>Organizer:</strong>
-        <span id="popupOrganizer"></span>
-      </p>
-      <p>
-        <strong>Attendees:</strong>
-        <span id="popupAttendees"></span>
-      </p>
+      <p><strong>Time Start:</strong> <span id="popupTimeStart"></span></p>
+      <p><strong>Time End:</strong> <span id="popupTimeEnd"></span></p>
+      <p><strong>Organizer:</strong> <span id="popupOrganizer"></span></p>
+      <p><strong>Attendees:</strong> <span id="popupAttendees"></span></p>
     </div>
     <div id="popupActions">
       <button id="editEvent" class="btn btn-primary btn-sm">Edit</button>

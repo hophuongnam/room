@@ -3,3 +3,4 @@
 credentials.json
 users.db
 Gemfile.lock
+auto.git.push.sh

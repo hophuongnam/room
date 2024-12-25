@@ -2,9 +2,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   /* ------------------------------------------------------------------
      DOM References
   ------------------------------------------------------------------ */
+  const loginBtn        = document.getElementById('loginBtn');
+  const logoutBtn       = document.getElementById('logoutBtn');
+  const errorDiv        = document.getElementById('error');
+
+  // Room tabs
   const roomTabs        = document.getElementById('roomTabs');
   const roomTabContent  = document.getElementById('roomTabContent');
-  const errorDiv        = document.getElementById('error');
 
   // Popup elements
   const eventPopup      = document.getElementById('eventPopup');
@@ -34,7 +38,48 @@ document.addEventListener('DOMContentLoaded', async () => {
   const lastKnownVersions = {};    // { calendarId: number }
 
   /* ------------------------------------------------------------------
-     Helper Functions
+     1) Check if user is logged in
+  ------------------------------------------------------------------ */
+  let isLoggedIn = false;
+  try {
+    const meRes = await fetch('/api/me');
+    if (meRes.status === 200) {
+      isLoggedIn = true;
+    }
+  } catch (err) {
+    console.error('Error checking /api/me:', err);
+  }
+
+  // Show/hide Login or Logout button
+  if (isLoggedIn) {
+    if (logoutBtn) logoutBtn.style.display = 'inline-block';
+    if (loginBtn)  loginBtn.style.display  = 'none';
+  } else {
+    if (logoutBtn) logoutBtn.style.display = 'none';
+    if (loginBtn)  loginBtn.style.display  = 'inline-block';
+  }
+
+  // Wire up login/logout buttons
+  if (loginBtn) {
+    loginBtn.addEventListener('click', () => {
+      window.location.href = '/login';
+    });
+  }
+  if (logoutBtn) {
+    logoutBtn.addEventListener('click', () => {
+      window.location.href = '/logout';
+    });
+  }
+
+  /* ------------------------------------------------------------------
+     2) If user not logged in, stop here so we don't load calendars
+  ------------------------------------------------------------------ */
+  if (!isLoggedIn) {
+    return;
+  }
+
+  /* ------------------------------------------------------------------
+     3) Helper Functions
   ------------------------------------------------------------------ */
   function showError(msg) {
     errorDiv.textContent = msg;
@@ -51,10 +96,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       throw new Error(`Fetch error (${res.status}): ${await res.text()}`);
     }
     return res.json();
-  }
-
-  async function fetchRooms() {
-    return fetchJSON('/api/rooms');
   }
 
   async function createEvent({ calendarId, title, start, end, participants }) {
@@ -74,11 +115,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   /* ------------------------------------------------------------------
-     Load Rooms & Create Tabs
+     4) Fetch Rooms
   ------------------------------------------------------------------ */
   let rooms = [];
   try {
-    const data = await fetchRooms();
+    const data = await fetchJSON('/api/rooms');
     rooms = data.rooms; // e.g. [{id, summary, description}, ...]
     hideError();
   } catch (err) {
@@ -92,6 +133,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
+  /* ------------------------------------------------------------------
+     5) Create Tabs for Each Room
+  ------------------------------------------------------------------ */
   rooms.forEach((room, index) => {
     // Create the tab
     const tabId   = `tab-${room.id}`;
@@ -141,7 +185,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   /* ------------------------------------------------------------------
-     FullCalendar Initialization
+     6) FullCalendar Initialization
   ------------------------------------------------------------------ */
   function initCalendar(calendarId) {
     const calendarEl = document.getElementById(`calendar-container-${calendarId}`);
@@ -182,7 +226,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   /* ------------------------------------------------------------------
-     Event Popup Logic
+     7) Event Popup Logic
   ------------------------------------------------------------------ */
   function openEventPopup(event, calendarId, jsEvent) {
     isPopupVisible = true;
@@ -226,7 +270,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const endTime   = event.end   ? new Date(event.end)   : null;
     const timeOpts  = { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
 
-    // Time Start / Time End
     popupTimeStart.textContent = startTime
       ? startTime.toLocaleString(undefined, timeOpts)
       : 'N/A';
@@ -234,7 +277,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       ? endTime.toLocaleString(undefined, timeOpts)
       : 'N/A';
 
-    // Organizer & Attendees (if stored in extendedProps or event.attendees)
+    // Organizer & Attendees (from extendedProps or event.attendees)
     popupOrganizer.textContent = event.extendedProps?.organizer || '';
     const attendees = event.extendedProps?.attendees || event.attendees || [];
     popupAttendees.textContent = Array.isArray(attendees) ? attendees.join(', ') : '';
@@ -274,7 +317,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   /* ------------------------------------------------------------------
-     Modal Logic (Create/Edit)
+     8) Modal Logic (Create/Edit)
   ------------------------------------------------------------------ */
   function openEventModal({ calendarId, eventId, title, start, end, attendees }) {
     calendarIdField.value = calendarId || '';
@@ -338,7 +381,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   /* ------------------------------------------------------------------
-     Polling for Room Updates
+     9) Polling for Room Updates
   ------------------------------------------------------------------ */
   setInterval(checkRoomUpdates, 30000);
 
@@ -349,7 +392,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       data.updates.forEach(({ roomId, version }) => {
         const currentVer = lastKnownVersions[roomId] || 0;
         if (version > currentVer) {
-          // There's a new update for this room
           lastKnownVersions[roomId] = version;
           // If the calendar is loaded, refetch events
           if (calendars[roomId]) {
