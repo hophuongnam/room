@@ -12,7 +12,7 @@
 }
 
 /* ------------------------
- Global Body
+   Global Body
 ------------------------ */
 body {
   font-family: 'Helvetica Neue', Arial, sans-serif;
@@ -22,16 +22,16 @@ body {
 }
 
 /*
- We have a double-decker, fixed-top navbar.
- ~120px top margin so content doesn't get hidden behind it.
+   We have a double-decker, fixed-top navbar.
+   ~120px top margin so content doesn't get hidden behind it.
 */
 .content-below-navbar {
-  margin-top: 120px; /* adjust if your top navbar is taller/shorter */
+  margin-top: 120px; /* adjust if your navbar is taller/shorter */
   padding: 20px;
 }
 
 /* ------------------------
- Error Message Box
+   Error Message Box
 ------------------------ */
 #error {
   display: none; /* hidden by default */
@@ -46,12 +46,26 @@ body {
 }
 
 /* ------------------------
- Event Popup
+   Popup Overlay
+------------------------ */
+#popupOverlay {
+  display: none;            /* hidden by default */
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: rgba(0,0,0,0.3);  /* translucent dark overlay */
+  z-index: 999;             /* behind #eventPopup, which is at 1000 */
+}
+
+/* ------------------------
+   Event Popup
 ------------------------ */
 #eventPopup {
   display: none;
   position: absolute;
-  z-index: 1000;
+  z-index: 1000;  /* higher than #popupOverlay */
   background: #fff;
   border: 1px solid #ddd;
   border-radius: var(--border-radius);
@@ -94,7 +108,7 @@ body {
 }
 
 /* ------------------------
- FullCalendar Events Hover
+   FullCalendar Events Hover
 ------------------------ */
 .fc-event:hover {
   background-color: var(--primary-color) !important;
@@ -103,21 +117,21 @@ body {
 }
 
 /* ------------------------
- Fade-in Animation
+   Fade-in Animation
 ------------------------ */
 @keyframes fadeIn {
   from {
-      opacity: 0;
-      transform: translateY(-10px);
+    opacity: 0;
+    transform: translateY(-10px);
   }
   to {
-      opacity: 1;
-      transform: translateY(0);
+    opacity: 1;
+    transform: translateY(0);
   }
 }
 
 /* ------------------------
- Custom Nav-Pills Styles
+   Custom Nav-Pills Styles
 ------------------------ */
 .nav-pills .nav-link {
   border-radius: var(--border-radius);
