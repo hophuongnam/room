@@ -38,6 +38,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const calendars       = {};      // { calendarId: FullCalendar instance }
   const lastKnownVersions = {};    // { calendarId: number }
 
+  // We'll store the current user’s email so we can check permissions
+  let currentUserEmail = null;
+
   /* ------------------------------------------------------------------
      2) Check if user is logged in
   ------------------------------------------------------------------ */
@@ -45,13 +48,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   try {
     const meRes = await fetch('/api/me');
     if (meRes.status === 200) {
+      const meData = await meRes.json();
+      currentUserEmail = meData.email;  // store user’s email
       isLoggedIn = true;
     }
   } catch (err) {
     console.error('Error checking /api/me:', err);
   }
 
-  // Show/hide Login or Logout button
+  // Show/hide Login or Logout
   if (isLoggedIn) {
     if (logoutBtn) logoutBtn.style.display = 'inline-block';
     if (loginBtn)  loginBtn.style.display  = 'none';
@@ -98,7 +103,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function createEvent({ calendarId, title, start, end, participants }) {
-    // Calls /api/create_event with a POST
     return fetchJSON('/api/create_event', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -124,7 +128,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     return `${year}-${month}-${day}T${hour}:${minute}`;
   }
 
-  // Return true if dateObj is strictly before "now"
   function isPast(dateObj) {
     const now = new Date();
     return dateObj < now;
@@ -210,10 +213,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   function initCalendar(calendarId) {
     const calendarEl = document.getElementById(`calendar-container-${calendarId}`);
     const calendar = new FullCalendar.Calendar(calendarEl, {
-      initialView: 'dayGridMonth',
       timeZone: 'local',
       height: 'auto',
-      nowIndicator: true, // red line if you switch to timeGrid views
+      nowIndicator: true,
+      slotMinTime: '08:00:00',
+      slotMaxTime: '18:00:00',
+      initialView: 'timeGridWeek',
       headerToolbar: {
         left: 'prev,next today',
         center: 'title',
@@ -228,7 +233,6 @@ document.addEventListener('DOMContentLoaded', async () => {
           failureCallback(err);
         }
       },
-      // Single-day create, disallow if popup open or it's in the past
       dateClick: (info) => {
         if (isPopupVisible) return;
         if (isPast(info.date)) {
@@ -240,7 +244,6 @@ document.addEventListener('DOMContentLoaded', async () => {
           end: info.date
         });
       },
-      // Multi-day drag, disallow if start is past
       selectable: true,
       selectAllow: (selectInfo) => {
         if (isPast(selectInfo.start)) {
@@ -253,10 +256,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         openEventModal({
           calendarId,
           start: selectionInfo.start,
-          end:   selectionInfo.end
+          end: selectionInfo.end
         });
       },
-      // View existing event
       eventClick: (clickInfo) => {
         if (isPopupVisible) return;
         openEventPopup(clickInfo.event, calendarId, clickInfo.jsEvent);
@@ -271,77 +273,120 @@ document.addEventListener('DOMContentLoaded', async () => {
   ------------------------------------------------------------------ */
   function openEventPopup(event, calendarId, jsEvent) {
     isPopupVisible = true;
-
-    // Show overlay
+  
+    // Show the overlay
     popupOverlay.style.display = 'block';
-    // Show popup
+    // Temporarily place the popup off-screen
     eventPopup.style.display = 'block';
     eventPopup.style.left = '-9999px';
     eventPopup.style.top  = '-9999px';
-
-    const offset = 10;
-    let popupLeft = jsEvent.pageX + offset;
-    let popupTop  = jsEvent.pageY + offset;
-
-    const rect = eventPopup.getBoundingClientRect();
-    const popupWidth = rect.width;
-    const popupHeight = rect.height;
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-
-    if (popupLeft + popupWidth > vw) {
-      popupLeft = vw - popupWidth - offset;
-    }
-    if (popupTop + popupHeight > vh) {
-      popupTop = vh - popupHeight - offset;
-    }
-
-    eventPopup.style.left = `${popupLeft}px`;
-    eventPopup.style.top  = `${popupTop}px`;
-
+  
+    // Fill popup content (same as before)
     popupTitle.textContent = event.title || 'Untitled';
-
+  
     const startTime = event.start ? new Date(event.start) : null;
     const endTime   = event.end   ? new Date(event.end)   : null;
     const timeOpts  = { 
-      year: 'numeric', month: 'long', day: 'numeric', 
+      year: 'numeric', month: 'long', day: 'numeric',
       hour: '2-digit', minute: '2-digit'
     };
-
+  
     popupTimeStart.textContent = startTime
       ? startTime.toLocaleString(undefined, timeOpts)
       : 'N/A';
-    popupTimeEnd.textContent = endTime
+    popupTimeEnd.textContent   = endTime
       ? endTime.toLocaleString(undefined, timeOpts)
       : 'N/A';
-
+  
     popupOrganizer.textContent = event.extendedProps?.organizer || '';
     const attendees = event.extendedProps?.attendees || event.attendees || [];
     popupAttendees.textContent = Array.isArray(attendees) ? attendees.join(', ') : '';
-
+  
+    // Permission check
+    const canEditOrDelete = (
+      attendees.includes(currentUserEmail) ||
+      event.extendedProps?.organizer === currentUserEmail
+    );
+    if (canEditOrDelete) {
+      editEventBtn.style.display = 'inline-block';
+      deleteEventBtn.style.display = 'inline-block';
+    } else {
+      editEventBtn.style.display = 'none';
+      deleteEventBtn.style.display = 'none';
+    }
+  
+    // Measure the navbar's height (assuming id="mainNavbar")
+    const navbar = document.getElementById('mainNavbar');
+    const navbarHeight = navbar ? navbar.offsetHeight : 70; // fallback
+  
+    // We pick a small offset so the popup is not too far from the click
+    const offset = 5;
+  
+    // Instead of jsEvent.pageX/Y, use clientX/Y for position in viewport
+    // Then add the scroll offset to position in the full document
+    let popupLeft = jsEvent.clientX + window.scrollX + offset;
+    let popupTop  = jsEvent.clientY + window.scrollY + offset;
+  
+    // Temporarily apply to measure actual popup size
+    eventPopup.style.left = `${popupLeft}px`;
+    eventPopup.style.top  = `${popupTop}px`;
+  
+    const rect = eventPopup.getBoundingClientRect();
+    const popupWidth = rect.width;
+    const popupHeight = rect.height;
+  
+    // Visible viewport width/height
+    const vw = window.innerWidth;
+    const vh = window.innerHeight;
+  
+    // Adjust for right edge
+    if (popupLeft + popupWidth > window.scrollX + vw) {
+      popupLeft = window.scrollX + vw - popupWidth - offset;
+    }
+    // Adjust for bottom edge
+    if (popupTop + popupHeight > window.scrollY + vh) {
+      popupTop = (window.scrollY + vh) - popupHeight - offset;
+    }
+  
+    // Adjust for left edge
+    if (popupLeft < window.scrollX + offset) {
+      popupLeft = window.scrollX + offset;
+    }
+    // Adjust for top edge, ensuring we stay below the navbar
+    const minTop = (window.scrollY + navbarHeight + offset);
+    if (popupTop < minTop) {
+      popupTop = minTop;
+    }
+  
+    // Apply final positioning
+    eventPopup.style.left = `${popupLeft}px`;
+    eventPopup.style.top  = `${popupTop}px`;
+  
+    // Button handlers
     editEventBtn.onclick = () => {
-      openEventModal({
-        calendarId,
-        eventId: event.id,
-        title: event.title,
-        start: event.start,
-        end: event.end,
-        attendees
-      });
+      if (canEditOrDelete) {
+        openEventModal({
+          calendarId,
+          eventId: event.id,
+          title: event.title,
+          start: event.start,
+          end: event.end,
+          attendees
+        });
+      }
       closeEventPopup();
     };
-
+  
     deleteEventBtn.onclick = async () => {
+      if (!canEditOrDelete) return;
       if (confirm('Are you sure you want to delete this event?')) {
         try {
           await deleteEvent({ calendarId, id: event.id });
-
           // remove from FullCalendar
           const fcEvent = calendars[calendarId]?.getEventById(event.id);
           if (fcEvent) {
             fcEvent.remove();
           }
-
           closeEventPopup();
         } catch (err) {
           console.error(err);
@@ -349,9 +394,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       }
     };
-
+  
     closePopupBtn.onclick = closeEventPopup;
-  }
+  }  
 
   function closeEventPopup() {
     // Hide overlay
@@ -432,7 +477,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Hide modal
       eventModal.hide();
 
-      // Add to FullCalendar immediately
+      // Immediately add to FullCalendar
       const localStartDate = new Date(startUTC);
       const localEndDate   = new Date(endUTC);
 
@@ -443,7 +488,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         end: localEndDate,
         attendees: participants,
         extendedProps: {
-          organizer: 'You',
+          organizer: currentUserEmail,
           attendees: participants
         }
       });
