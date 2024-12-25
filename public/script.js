@@ -98,6 +98,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   async function createEvent({ calendarId, title, start, end, participants }) {
+    // Hit /api/create_event with a POST
     return fetchJSON('/api/create_event', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -113,13 +114,29 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  // Convert a local JS Date => "YYYY-MM-DDTHH:mm" for <input type="datetime-local">
+  function toLocalDateTimeInput(jsDate) {
+    const year   = jsDate.getFullYear();
+    const month  = String(jsDate.getMonth() + 1).padStart(2, '0');
+    const day    = String(jsDate.getDate()).padStart(2, '0');
+    const hour   = String(jsDate.getHours()).padStart(2, '0');
+    const minute = String(jsDate.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hour}:${minute}`;
+  }
+
+  // Return true if date is in the past
+  function isPast(dateObj) {
+    const now = new Date();
+    return dateObj < now;
+  }
+
   /* ------------------------------------------------------------------
      4) Fetch Rooms
   ------------------------------------------------------------------ */
   let rooms = [];
   try {
     const data = await fetchJSON('/api/rooms');
-    rooms = data.rooms; // e.g. [{id, summary, description}, ...]
+    rooms = data.rooms || [];
     hideError();
   } catch (err) {
     console.error(err);
@@ -127,7 +144,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  if (!rooms || rooms.length === 0) {
+  if (rooms.length === 0) {
     showError('No rooms found.');
     return;
   }
@@ -136,7 +153,6 @@ document.addEventListener('DOMContentLoaded', async () => {
      5) Create Tabs for Each Room
   ------------------------------------------------------------------ */
   rooms.forEach((room, index) => {
-    // Create the tab
     const tabId   = `tab-${room.id}`;
     const paneId  = `pane-${room.id}`;
     const li      = document.createElement('li');
@@ -156,7 +172,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     `;
     roomTabs.appendChild(li);
 
-    // Create the tab pane
     const pane = document.createElement('div');
     pane.className = `tab-pane fade ${index === 0 ? 'show active' : ''}`;
     pane.id = paneId;
@@ -170,6 +185,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     lastKnownVersions[room.id] = 0;
 
+    // Initialize calendar for first room or upon tab click
     if (index === 0) {
       initCalendar(room.id);
     } else {
@@ -188,15 +204,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     const calendarEl = document.getElementById(`calendar-container-${calendarId}`);
     const calendar = new FullCalendar.Calendar(calendarEl, {
       initialView: 'dayGridMonth',
-      // Display everything in local time for the user
-      timeZone: 'local',
+      timeZone: 'local',  // Display times in local zone
       height: 'auto',
+      nowIndicator: true,
       headerToolbar: {
         left: 'prev,next today',
         center: 'title',
         right: 'dayGridMonth,timeGridWeek,timeGridDay',
       },
-      // Fetch from /api/room_data for existing events
       events: async (info, successCallback, failureCallback) => {
         try {
           const data = await fetchJSON(`/api/room_data?calendarId=${encodeURIComponent(calendarId)}`);
@@ -207,17 +222,42 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       },
       selectable: true,
+
+      // Disallow clicking past dates
+      dateClick: (info) => {
+        // info.date is local
+        if (isPast(info.date)) {
+          return; // do nothing
+        }
+        // Single-day click -> open modal
+        openEventModal({
+          calendarId,
+          // For a single day, we can pass the same date
+          start: info.date,
+          end: info.date
+        });
+      },
+
+      // Disallow dragging over past dates
+      selectAllow: (selectInfo) => {
+        // e.g. if the start is in the past, disallow
+        if (isPast(selectInfo.start)) {
+          return false;
+        }
+        return true;
+      },
+
+      // Called if selectAllow returns true => user drags in a future range
       select: (selectionInfo) => {
         if (!isPopupVisible) {
-          // On drag-to-create
-          // Pass the local Date objects to openEventModal
           openEventModal({
             calendarId,
-            start: selectionInfo.start, // local JS Date
-            end:   selectionInfo.end,
+            start: selectionInfo.start, // local date
+            end:   selectionInfo.end
           });
         }
       },
+
       eventClick: (clickInfo) => {
         openEventPopup(clickInfo.event, calendarId, clickInfo.jsEvent);
       },
@@ -243,6 +283,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const rect = eventPopup.getBoundingClientRect();
     const popupWidth = rect.width;
     const popupHeight = rect.height;
+
     const vw = window.innerWidth;
     const vh = window.innerHeight;
 
@@ -314,15 +355,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     eventIdField.value    = eventId    || '';
     eventTitleField.value = title      || '';
 
-    // Convert local date to an input-friendly "YYYY-MM-DDTHH:mm"
     if (start) {
-      eventStartField.value = toLocalDateTimeInput(new Date(start));
+      const dt = new Date(start);
+      eventStartField.value = toLocalDateTimeInput(dt);
     } else {
       eventStartField.value = '';
     }
 
     if (end) {
-      eventEndField.value = toLocalDateTimeInput(new Date(end));
+      const dt = new Date(end);
+      eventEndField.value = toLocalDateTimeInput(dt);
     } else {
       eventEndField.value = '';
     }
@@ -336,16 +378,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     eventModal.show();
   }
 
-  // Helper: local JS date => "YYYY-MM-DDTHH:mm"
-  function toLocalDateTimeInput(jsDate) {
-    const year   = jsDate.getFullYear();
-    const month  = String(jsDate.getMonth() + 1).padStart(2, '0');
-    const day    = String(jsDate.getDate()).padStart(2, '0');
-    const hour   = String(jsDate.getHours()).padStart(2, '0');
-    const minute = String(jsDate.getMinutes()).padStart(2, '0');
-    return `${year}-${month}-${day}T${hour}:${minute}`;
-  }
-
   eventForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
@@ -355,10 +387,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     const guestsStr    = eventGuestsField.value;
     const participants = guestsStr.split(',').map(s => s.trim()).filter(Boolean);
 
-    // Convert local <input type="datetime-local"> to UTC .toISOString()
+    // Convert local <input type="datetime-local"> to a Date => .toISOString() => UTC
     const localStartDate = new Date(eventStartField.value);
     const localEndDate   = new Date(eventEndField.value);
-    const startUTC       = localStartDate.toISOString();  // e.g. "2024-12-25T02:00:00.000Z"
+    const startUTC       = localStartDate.toISOString();
     const endUTC         = localEndDate.toISOString();
 
     if (!calendarId || !title || !startUTC || !endUTC) {
@@ -366,13 +398,19 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
+    // Check if start/end is in the past
+    if (isPast(localStartDate)) {
+      showError('Cannot create event in the past.');
+      return;
+    }
+
     try {
-      // If updating existing (delete + create)
+      // If updating an existing event (quick approach: delete + create)
       if (eventId) {
         await deleteEvent({ calendarId, id: eventId });
       }
 
-      // 1) Create in server (UTC)
+      // 1) Create event server-side (UTC)
       const result = await createEvent({
         calendarId,
         title,
@@ -381,31 +419,26 @@ document.addEventListener('DOMContentLoaded', async () => {
         participants
       });
 
-      // 2) Hide modal, no error
+      // 2) Hide the modal
       eventModal.hide();
       hideError();
 
-      // 3) Immediately add the event to FullCalendar so the user sees it
-      //    We'll add it as local time for display.
-      const localStart = new Date(startUTC); // convert from UTC -> local
+      // 3) Immediately add the event to FullCalendar so user sees it
+      //    We'll add it as local Date objects
+      const localStart = new Date(startUTC);
       const localEnd   = new Date(endUTC);
 
       calendars[calendarId]?.addEvent({
         id: result.event_id,
-        title: title,
-        start: localStart, // FullCalendar is 'local' => display is correct
+        title,
+        start: localStart, // FullCalendar set to local => displays in local
         end: localEnd,
         attendees: participants,
-        extendedProps: { 
-          organizer: window.session?.user_email ?? '', 
-          // or store whichever data you want
-          attendees: participants 
+        extendedProps: {
+          organizer: 'You', // or session user
+          attendees: participants
         }
       });
-
-      // If you still want to refetch from server, you can do:
-      // calendars[calendarId]?.refetchEvents();
-      // but we skip that so the event appears instantly.
 
     } catch (err) {
       console.error(err);
@@ -425,7 +458,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         const currentVer = lastKnownVersions[roomId] || 0;
         if (version > currentVer) {
           lastKnownVersions[roomId] = version;
-          // If the calendar is loaded, refetch events
           if (calendars[roomId]) {
             calendars[roomId].refetchEvents();
           }
@@ -436,5 +468,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  // Run once
   checkRoomUpdates();
 });
