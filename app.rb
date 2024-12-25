@@ -1,4 +1,8 @@
 require 'dotenv/load'               # Load .env variables (if using dotenv)
+
+# Force the environment to UTC, ignoring system timezone
+ENV['TZ'] = 'UTC'
+
 require 'sinatra'
 require 'google/apis/calendar_v3'
 require 'googleauth'
@@ -54,7 +58,7 @@ scheduler = Rufus::Scheduler.new
 # -------------------------------------------------
 Thread.new do
   sleep 3
-  load_and_watch_all_rooms  # from services.rb (unchanged)
+  load_and_watch_all_rooms  # from services.rb
 end
 
 # -------------------------------------------------
@@ -156,7 +160,6 @@ end
 # -------------------------------------------------
 # API Endpoint: Query User Details
 # -------------------------------------------------
-# /api/user_details?email=someone@example.com
 get '/api/user_details' do
   content_type :json
   email = params['email']
@@ -262,6 +265,7 @@ end
 
 # Optional: direct Google fetch
 get '/api/events' do
+  content_type :json
   calendar_id = params['calendarId']
   halt 400, { error: 'Missing calendarId' }.to_json unless calendar_id
 
@@ -269,7 +273,6 @@ get '/api/events' do
   service.authorization = load_organizer_credentials
   events = service.list_events(calendar_id, single_events: true, order_by: 'startTime')
 
-  content_type :json
   {
     events: events.items.map do |event|
       {
@@ -315,6 +318,7 @@ post '/api/create_event' do
   creator_email = session[:user_email]
   halt 401, { error: 'Unauthorized' }.to_json unless creator_email
 
+  # Always parse as UTC
   start_time_utc = Time.parse(start_time_str).utc
   end_time_utc   = Time.parse(end_time_str).utc
 
@@ -369,7 +373,6 @@ delete '/api/delete_event' do
   { status: 'success' }.to_json
 end
 
-# Scheduler
 scheduler.every '23h' do
   begin
     puts 'Renewing watches for all room calendars...'
@@ -379,7 +382,6 @@ scheduler.every '23h' do
   end
 end
 
-# Serve index
 get '/' do
   send_file File.join(settings.public_folder, 'index.html')
 end

@@ -28,8 +28,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const calendarIdField = document.getElementById('calendarId');
   const eventIdField    = document.getElementById('eventId');
   const eventTitleField = document.getElementById('eventTitle');
-  const eventStartField = document.getElementById('eventStart');
-  const eventEndField   = document.getElementById('eventEnd');
+  const eventStartField = document.getElementById('eventStart'); // <input type="datetime-local">
+  const eventEndField   = document.getElementById('eventEnd');   // <input type="datetime-local">
   const eventGuestsField= document.getElementById('eventGuests');
 
   // Track state
@@ -197,7 +197,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         center: 'title',
         right: 'dayGridMonth,timeGridWeek,timeGridDay',
       },
-      // Fetch the cached data from /api/room_data
       events: async (info, successCallback, failureCallback) => {
         try {
           const data = await fetchJSON(`/api/room_data?calendarId=${encodeURIComponent(calendarId)}`);
@@ -231,39 +230,31 @@ document.addEventListener('DOMContentLoaded', async () => {
   function openEventPopup(event, calendarId, jsEvent) {
     isPopupVisible = true;
 
-    // Show popup off-screen first to measure its size
     eventPopup.style.display = 'block';
     eventPopup.style.left = '-9999px';
     eventPopup.style.top = '-9999px';
 
-    // Coordinates for positioning near click
     const offset = 10;
     let popupLeft = jsEvent.pageX + offset;
     let popupTop  = jsEvent.pageY + offset;
 
-    // Measure popup
     const rect = eventPopup.getBoundingClientRect();
     const popupWidth = rect.width;
     const popupHeight = rect.height;
 
-    // Viewport bounds
     const vw = window.innerWidth;
     const vh = window.innerHeight;
 
-    // Adjust if off right edge
     if (popupLeft + popupWidth > vw) {
       popupLeft = vw - popupWidth - offset;
     }
-    // Adjust if off bottom edge
     if (popupTop + popupHeight > vh) {
       popupTop = vh - popupHeight - offset;
     }
 
-    // Apply final position
     eventPopup.style.left = `${popupLeft}px`;
-    eventPopup.style.top = `${popupTop}px`;
+    eventPopup.style.top  = `${popupTop}px`;
 
-    // Fill popup content
     popupTitle.textContent = event.title || 'Untitled';
 
     const startTime = event.start ? new Date(event.start) : null;
@@ -277,12 +268,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       ? endTime.toLocaleString(undefined, timeOpts)
       : 'N/A';
 
-    // Organizer & Attendees (from extendedProps or event.attendees)
     popupOrganizer.textContent = event.extendedProps?.organizer || '';
     const attendees = event.extendedProps?.attendees || event.attendees || [];
     popupAttendees.textContent = Array.isArray(attendees) ? attendees.join(', ') : '';
 
-    // Edit, Delete, Close
     editEventBtn.onclick = () => {
       openEventModal({
         calendarId,
@@ -353,12 +342,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     const calendarId   = calendarIdField.value;
     const eventId      = eventIdField.value;
     const title        = eventTitleField.value;
-    const start        = eventStartField.value;
-    const end          = eventEndField.value;
     const guestsStr    = eventGuestsField.value;
     const participants = guestsStr.split(',').map(s => s.trim()).filter(Boolean);
 
-    if (!calendarId || !title || !start || !end) {
+    // *** Key Part: Convert local input to UTC ***
+    // eventStartField.value and eventEndField.value are local date/time
+    const localStart   = new Date(eventStartField.value); // local
+    const localEnd     = new Date(eventEndField.value);   // local
+    const startUTC     = localStart.toISOString();        // e.g. "2024-12-25T02:00:00.000Z"
+    const endUTC       = localEnd.toISOString();
+
+    if (!calendarId || !title || !startUTC || !endUTC) {
       showError('Missing required fields.');
       return;
     }
@@ -368,7 +362,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (eventId) {
         await deleteEvent({ calendarId, id: eventId });
       }
-      await createEvent({ calendarId, title, start, end, participants });
+      await createEvent({ calendarId, title, start: startUTC, end: endUTC, participants });
 
       eventModal.hide();
       hideError();
@@ -387,13 +381,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   async function checkRoomUpdates() {
     try {
-      // { updates: [ { roomId, version }, ... ] }
       const data = await fetchJSON('/api/room_updates');
       data.updates.forEach(({ roomId, version }) => {
         const currentVer = lastKnownVersions[roomId] || 0;
         if (version > currentVer) {
           lastKnownVersions[roomId] = version;
-          // If the calendar is loaded, refetch events
           if (calendars[roomId]) {
             calendars[roomId].refetchEvents();
           }
@@ -404,6 +396,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // Optionally run once immediately
+  // Optionally run once
   checkRoomUpdates();
 });

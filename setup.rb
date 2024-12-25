@@ -1,4 +1,7 @@
-require 'dotenv/load'               # Load .env variables (if using dotenv)
+require 'dotenv/load'
+# Force the environment to UTC, ignoring system timezone
+ENV['TZ'] = 'UTC'
+
 require 'google/apis/calendar_v3'
 require 'googleauth'
 require 'sqlite3'
@@ -6,13 +9,12 @@ require 'json'
 require 'sinatra'
 require 'base64'
 
-# Read environment variables
 DB_PATH      = ENV['DB_PATH']      || 'users.db'
 REDIRECT_URI = ENV['REDIRECT_URI'] || "https://room.mefat.review/oauth2callback"
 PORT         = ENV['PORT'] ? ENV['PORT'].to_i : 3000
 
 APPLICATION_NAME = 'Meeting Room Reservation System'
-CREDENTIALS_PATH = 'credentials.json'  # Keep credentials.json for Google OAuth
+CREDENTIALS_PATH = 'credentials.json'
 SCOPE = [
   'https://www.googleapis.com/auth/calendar',
   'https://www.googleapis.com/auth/calendar.events',
@@ -24,7 +26,6 @@ SCOPE = [
   'profile'
 ]
 
-# Initialize the SQLite database
 def initialize_database
   db = SQLite3::Database.new(DB_PATH)
   db.execute <<-SQL
@@ -57,17 +58,14 @@ def save_organizer_credentials(db, email, credentials)
              [email, 1, serialized_credentials])
 end
 
-# OAuth callback endpoint - only for organizer setup here
 get '/oauth2callback' do
   code  = params['code']
   state = params['state']
 
-  # Only handle the organizer setup in this file
   if state != 'setup_organizer'
     return "Invalid state for setup. Access denied."
   end
 
-  # Build client from credentials.json
   client_id  = Google::Auth::ClientId.from_file(CREDENTIALS_PATH)
   authorizer = Google::Auth::UserAuthorizer.new(client_id, SCOPE, nil)
 
@@ -77,7 +75,6 @@ get '/oauth2callback' do
     base_url: REDIRECT_URI
   )
 
-  # Extract email from ID token
   id_token = credentials.id_token
   email    = nil
   if id_token
@@ -93,14 +90,9 @@ get '/oauth2callback' do
   "Setup complete! Organizer authenticated with email: #{email}."
 end
 
-# Main Setup Script
 client_id  = Google::Auth::ClientId.from_file(CREDENTIALS_PATH)
 authorizer = Google::Auth::UserAuthorizer.new(client_id, SCOPE, nil)
-
-authorization_url = authorizer.get_authorization_url(
-  base_url: REDIRECT_URI,
-  state: 'setup_organizer'
-)
+authorization_url = authorizer.get_authorization_url(base_url: REDIRECT_URI, state: 'setup_organizer')
 
 set :port, PORT
 set :environment, :production
