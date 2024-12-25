@@ -1,6 +1,6 @@
 document.addEventListener('DOMContentLoaded', async () => {
   /* ------------------------------------------------------------------
-     DOM References
+     1) DOM References
   ------------------------------------------------------------------ */
   const loginBtn        = document.getElementById('loginBtn');
   const logoutBtn       = document.getElementById('logoutBtn');
@@ -28,8 +28,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const calendarIdField = document.getElementById('calendarId');
   const eventIdField    = document.getElementById('eventId');
   const eventTitleField = document.getElementById('eventTitle');
-  const eventStartField = document.getElementById('eventStart'); // <input type="datetime-local">
-  const eventEndField   = document.getElementById('eventEnd');   // <input type="datetime-local">
+  const eventStartField = document.getElementById('eventStart');
+  const eventEndField   = document.getElementById('eventEnd');
   const eventGuestsField= document.getElementById('eventGuests');
 
   // Track state
@@ -38,7 +38,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const lastKnownVersions = {};    // { calendarId: number }
 
   /* ------------------------------------------------------------------
-     1) Check if user is logged in
+     2) Check if user is logged in
   ------------------------------------------------------------------ */
   let isLoggedIn = false;
   try {
@@ -71,9 +71,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  /* ------------------------------------------------------------------
-     2) If user not logged in, stop here so we don't load calendars
-  ------------------------------------------------------------------ */
+  // If not logged in, stop here
   if (!isLoggedIn) {
     return;
   }
@@ -93,7 +91,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function fetchJSON(url, options = {}) {
     const res = await fetch(url, options);
     if (!res.ok) {
-      throw new Error(`Fetch error (${res.status}): ${await res.text()}`);
+      const text = await res.text();
+      throw new Error(`Fetch error (${res.status}): ${text}`);
     }
     return res.json();
   }
@@ -169,10 +168,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     `;
     roomTabContent.appendChild(pane);
 
-    // Initialize last known version for each room
     lastKnownVersions[room.id] = 0;
 
-    // Lazy-init the calendar on tab click or immediately for the first tab
     if (index === 0) {
       initCalendar(room.id);
     } else {
@@ -191,12 +188,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     const calendarEl = document.getElementById(`calendar-container-${calendarId}`);
     const calendar = new FullCalendar.Calendar(calendarEl, {
       initialView: 'dayGridMonth',
+      // Display everything in local time for the user
+      timeZone: 'local',
       height: 'auto',
       headerToolbar: {
         left: 'prev,next today',
         center: 'title',
         right: 'dayGridMonth,timeGridWeek,timeGridDay',
       },
+      // Fetch from /api/room_data for existing events
       events: async (info, successCallback, failureCallback) => {
         try {
           const data = await fetchJSON(`/api/room_data?calendarId=${encodeURIComponent(calendarId)}`);
@@ -209,10 +209,12 @@ document.addEventListener('DOMContentLoaded', async () => {
       selectable: true,
       select: (selectionInfo) => {
         if (!isPopupVisible) {
+          // On drag-to-create
+          // Pass the local Date objects to openEventModal
           openEventModal({
             calendarId,
-            start: selectionInfo.startStr,
-            end: selectionInfo.endStr,
+            start: selectionInfo.start, // local JS Date
+            end:   selectionInfo.end,
           });
         }
       },
@@ -232,7 +234,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     eventPopup.style.display = 'block';
     eventPopup.style.left = '-9999px';
-    eventPopup.style.top = '-9999px';
+    eventPopup.style.top  = '-9999px';
 
     const offset = 10;
     let popupLeft = jsEvent.pageX + offset;
@@ -241,7 +243,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const rect = eventPopup.getBoundingClientRect();
     const popupWidth = rect.width;
     const popupHeight = rect.height;
-
     const vw = window.innerWidth;
     const vh = window.innerHeight;
 
@@ -313,16 +314,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     eventIdField.value    = eventId    || '';
     eventTitleField.value = title      || '';
 
+    // Convert local date to an input-friendly "YYYY-MM-DDTHH:mm"
     if (start) {
-      const dt = new Date(start);
-      eventStartField.value = dt.toISOString().slice(0,16);
+      eventStartField.value = toLocalDateTimeInput(new Date(start));
     } else {
       eventStartField.value = '';
     }
 
     if (end) {
-      const dt = new Date(end);
-      eventEndField.value = dt.toISOString().slice(0,16);
+      eventEndField.value = toLocalDateTimeInput(new Date(end));
     } else {
       eventEndField.value = '';
     }
@@ -336,6 +336,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     eventModal.show();
   }
 
+  // Helper: local JS date => "YYYY-MM-DDTHH:mm"
+  function toLocalDateTimeInput(jsDate) {
+    const year   = jsDate.getFullYear();
+    const month  = String(jsDate.getMonth() + 1).padStart(2, '0');
+    const day    = String(jsDate.getDate()).padStart(2, '0');
+    const hour   = String(jsDate.getHours()).padStart(2, '0');
+    const minute = String(jsDate.getMinutes()).padStart(2, '0');
+    return `${year}-${month}-${day}T${hour}:${minute}`;
+  }
+
   eventForm.addEventListener('submit', async (e) => {
     e.preventDefault();
 
@@ -345,12 +355,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     const guestsStr    = eventGuestsField.value;
     const participants = guestsStr.split(',').map(s => s.trim()).filter(Boolean);
 
-    // *** Key Part: Convert local input to UTC ***
-    // eventStartField.value and eventEndField.value are local date/time
-    const localStart   = new Date(eventStartField.value); // local
-    const localEnd     = new Date(eventEndField.value);   // local
-    const startUTC     = localStart.toISOString();        // e.g. "2024-12-25T02:00:00.000Z"
-    const endUTC       = localEnd.toISOString();
+    // Convert local <input type="datetime-local"> to UTC .toISOString()
+    const localStartDate = new Date(eventStartField.value);
+    const localEndDate   = new Date(eventEndField.value);
+    const startUTC       = localStartDate.toISOString();  // e.g. "2024-12-25T02:00:00.000Z"
+    const endUTC         = localEndDate.toISOString();
 
     if (!calendarId || !title || !startUTC || !endUTC) {
       showError('Missing required fields.');
@@ -358,16 +367,46 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     try {
-      // If updating an existing event (quick approach: delete + create)
+      // If updating existing (delete + create)
       if (eventId) {
         await deleteEvent({ calendarId, id: eventId });
       }
-      await createEvent({ calendarId, title, start: startUTC, end: endUTC, participants });
 
+      // 1) Create in server (UTC)
+      const result = await createEvent({
+        calendarId,
+        title,
+        start: startUTC,
+        end: endUTC,
+        participants
+      });
+
+      // 2) Hide modal, no error
       eventModal.hide();
       hideError();
 
-      calendars[calendarId]?.refetchEvents();
+      // 3) Immediately add the event to FullCalendar so the user sees it
+      //    We'll add it as local time for display.
+      const localStart = new Date(startUTC); // convert from UTC -> local
+      const localEnd   = new Date(endUTC);
+
+      calendars[calendarId]?.addEvent({
+        id: result.event_id,
+        title: title,
+        start: localStart, // FullCalendar is 'local' => display is correct
+        end: localEnd,
+        attendees: participants,
+        extendedProps: { 
+          organizer: window.session?.user_email ?? '', 
+          // or store whichever data you want
+          attendees: participants 
+        }
+      });
+
+      // If you still want to refetch from server, you can do:
+      // calendars[calendarId]?.refetchEvents();
+      // but we skip that so the event appears instantly.
+
     } catch (err) {
       console.error(err);
       showError('Failed to save event.');
@@ -386,6 +425,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const currentVer = lastKnownVersions[roomId] || 0;
         if (version > currentVer) {
           lastKnownVersions[roomId] = version;
+          // If the calendar is loaded, refetch events
           if (calendars[roomId]) {
             calendars[roomId].refetchEvents();
           }
@@ -396,6 +436,5 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // Optionally run once
   checkRoomUpdates();
 });
