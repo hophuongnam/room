@@ -205,11 +205,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       slotMaxTime: '18:00:00',
       initialView: 'timeGridWeek',
       firstDay: 1, // Monday
+
       headerToolbar: {
         left: 'prev,next today',
         center: 'title',
         right: 'dayGridMonth,timeGridWeek,timeGridDay',
       },
+
+      // Provide events from /api/room_data
       events: async (info, successCallback, failureCallback) => {
         try {
           const data = await fetchJSON(`/api/room_data?calendarId=${encodeURIComponent(calendarId)}`);
@@ -222,26 +225,56 @@ document.addEventListener('DOMContentLoaded', async () => {
           hideSpinner();
         }
       },
+
+      // Single-click => default 30-min event
       dateClick: (info) => {
         if (isPast(info.date)) return;
+
+        // Create a default 30-minute slot
+        const startTime = info.date;
+        const endTime   = new Date(startTime.getTime() + 30 * 60 * 1000);
+
         openEventModal({
           calendarId,
-          start: info.date,
-          end: info.date
+          start: startTime,
+          end:   endTime
         });
       },
+
+      // Enable drag-select for time range
       selectable: true,
+
+      // Overlap check to disallow selection if it conflicts with any existing event
       selectAllow: (selectInfo) => {
-        if (isPast(selectInfo.start)) return false;
+        // Past selection disallowed
+        if (isPast(selectInfo.start)) {
+          return false;
+        }
+
+        // Check overlap against existing events
+        const existingEvents = calendar.getEvents();
+        const proposedStart  = selectInfo.start;
+        const proposedEnd    = selectInfo.end;
+
+        for (const ev of existingEvents) {
+          if (proposedStart < ev.end && proposedEnd > ev.start) {
+            // Found an overlap => reject
+            return false;
+          }
+        }
+        // no overlap => allow
         return true;
       },
+
+      // If selection is allowed => open modal
       select: (selectionInfo) => {
         openEventModal({
           calendarId,
           start: selectionInfo.start,
-          end: selectionInfo.end
+          end:   selectionInfo.end
         });
       },
+
       eventClick: (clickInfo) => {
         openViewEventModal(clickInfo.event, calendarId);
       },
@@ -326,6 +359,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   ------------------------------------------------------------------ */
   function openEventModal({ calendarId, eventId, title, start, end, attendees }) {
     hideError();
+
     calendarIdField.value = calendarId || '';
     eventIdField.value    = eventId    || '';
     eventTitleField.value = title      || '';
@@ -351,7 +385,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     eventModal.show();
   }
 
-  // UPDATED: No manual addEvent(); just refetch after creation
+  // Updated: no manual addEvent(); rely on refetch after creation
   eventForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     hideError();
@@ -399,7 +433,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       eventModal.hide();
 
-      // 2) Refetch from the server so we see the new event (no placeholders needed)
+      // 2) Immediately refetch from the server so we see the new event
       calendars[calendarId].refetchEvents();
 
     } catch (err) {
