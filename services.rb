@@ -10,7 +10,8 @@ require 'securerandom'
 require 'time'
 
 CREDENTIALS_PATH = 'credentials.json'
-REDIRECT_URI = "https://room.mefat.review/oauth2callback"
+REDIRECT_URI = ENV['REDIRECT_URI']
+WEBHOOK_ADDRESS = ENV['WEBHOOK_ADDRESS']
 DB_PATH = 'users.db'
 
 # Global in-memory structures (shared with app.rb).
@@ -119,7 +120,7 @@ def setup_watch_for_calendar(calendar_id, service = nil)
   channel = Google::Apis::CalendarV3::Channel.new(
     id: SecureRandom.uuid,
     type: 'webhook',
-    address: 'https://room.mefat.review/notifications'
+    address: WEBHOOK_ADDRESS
   )
 
   begin

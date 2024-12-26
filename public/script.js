@@ -213,6 +213,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       slotMinTime: '08:00:00',
       slotMaxTime: '18:00:00',
       initialView: 'timeGridWeek',
+      firstDay: 1, // Monday
       headerToolbar: {
         left: 'prev,next today',
         center: 'title',
@@ -415,16 +416,17 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       eventModal.hide();
 
-      // Immediately add to FullCalendar
+      // CHANGED: use exact data returned by the backend (result.*).
+      // This ensures the ID and times match what's in Google Calendar.
       calendars[calendarId]?.addEvent({
         id: result.event_id,
-        title,
-        start: localStart,
-        end: localEnd,
-        attendees: participants,
+        title: result.summary,
+        start: new Date(result.start),
+        end: new Date(result.end),
+        attendees: result.attendees,
         extendedProps: {
-          organizer: currentUserEmail,
-          attendees: participants
+          organizer: result.organizer,
+          attendees: result.attendees
         }
       });
 

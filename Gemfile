@@ -1,0 +1,10 @@
+source 'https://rubygems.org'
+
+gem 'sinatra'
+gem 'sqlite3'
+gem 'dotenv'
+gem 'googleauth'
+gem 'rufus-scheduler'
+gem 'puma'
+gem 'google-apis-calendar_v3'
+gem 'rackup'

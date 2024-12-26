@@ -344,8 +344,18 @@ post '/api/create_event' do
   )
 
   result = service.insert_event(calendar_id, event)
+  
+  # CHANGED: return full event data so the frontend can match everything exactly
   content_type :json
-  { event_id: result.id, status: 'success' }.to_json
+  {
+    event_id: result.id,
+    summary: result.summary,
+    start:   result.start.date_time || result.start.date,
+    end:     result.end.date_time   || result.end.date,
+    attendees: result.attendees&.map(&:email) || [],
+    organizer: creator_email,
+    status: 'success'
+  }.to_json
 end
 
 delete '/api/delete_event' do
