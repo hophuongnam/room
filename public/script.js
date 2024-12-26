@@ -8,8 +8,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const loadingSpinner   = document.getElementById('loadingSpinner');
 
   // Rooms dropdown
-  const roomDropdown     = document.getElementById('roomDropdown');        // <a> tag
-  const roomDropdownMenu = document.getElementById('roomDropdownMenu');    // <ul>
+  const roomDropdown     = document.getElementById('roomDropdown');
+  const roomDropdownMenu = document.getElementById('roomDropdownMenu');
 
   // Calendar Container
   const calendarContainer = document.getElementById('calendarContainer');
@@ -42,9 +42,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let currentRoomId      = null;
   const calendars        = {}; // { calendarId: FullCalendar instance }
   const lastKnownVersions= {}; // { calendarId: number }
-
-  // We'll also store a map of room IDs => room summaries
-  const roomMap = {};   // e.g., { "abc123@group.calendar.google.com": "Room A", ... }
+  const roomMap          = {}; // e.g. { "abc123@group.calendar.google.com": "Room A", ... }
 
   /* ------------------------------------------------------------------
      3) Helper Functions
@@ -161,7 +159,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const link = document.createElement('a');
     link.className = 'dropdown-item';
     link.href = '#';
-    link.textContent = room.summary; // This is the room name displayed in the dropdown
+    link.textContent = room.summary;
     link.addEventListener('click', () => {
       selectRoom(room.id);
     });
@@ -169,7 +167,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     li.appendChild(link);
     roomDropdownMenu.appendChild(li);
 
-    // Add to our roomMap
     roomMap[room.id] = room.summary;
 
     // Auto-select the first room on page load
@@ -186,11 +183,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     currentRoomId = roomId;
     hideError();
     showSpinner();
-
-    // IMPORTANT: Update the dropdown toggle text to the *current room's* name
     roomDropdown.textContent = roomMap[roomId];
-
-    // Initialize (or refetch) the calendar
     initCalendar(roomId);
   }
 
@@ -198,14 +191,12 @@ document.addEventListener('DOMContentLoaded', async () => {
      7) Initialize FullCalendar for a Given Room
   ------------------------------------------------------------------ */
   function initCalendar(calendarId) {
-    // If we already have a calendar object for this room, refetch events
     if (calendars[calendarId]) {
       calendars[calendarId].refetchEvents();
       hideSpinner();
       return;
     }
 
-    // Otherwise, create a new calendar
     const calendar = new FullCalendar.Calendar(calendarContainer, {
       timeZone: 'local',
       height: 'auto',
@@ -255,22 +246,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         openViewEventModal(clickInfo.event, calendarId);
       },
     });
+
     calendar.render();
     calendars[calendarId] = calendar;
   }
 
   /* ------------------------------------------------------------------
-     8) View Existing Event (Bootstrap Modal)
+     8) View Existing Event (Modal)
   ------------------------------------------------------------------ */
-  let currentEventId = null; // store the event ID being viewed
+  let currentEventId = null;
 
   function openViewEventModal(event, calendarId) {
     hideError();
-
-    // Store for delete/edit reference
     currentEventId = event.id;
 
-    // Fill the fields
     viewEventTitle.textContent = event.title || 'Untitled';
     const startTime = event.start ? new Date(event.start) : null;
     const endTime   = event.end   ? new Date(event.end)   : null;
@@ -290,21 +279,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     const attendees = event.extendedProps?.attendees || event.attendees || [];
     viewEventAttendees.textContent = Array.isArray(attendees) ? attendees.join(', ') : '';
 
-    // Check permission: can edit or delete if user is organizer or attendee
-    const canEditOrDelete = (
-      attendees.includes(currentUserEmail) ||
-      organizer === currentUserEmail
-    );
+    // permission check
+    const canEditOrDelete = (attendees.includes(currentUserEmail) || organizer === currentUserEmail);
     viewEventEditBtn.style.display   = canEditOrDelete ? 'inline-block' : 'none';
     viewEventDeleteBtn.style.display = canEditOrDelete ? 'inline-block' : 'none';
 
-    // Show the modal
     viewEventModal.show();
 
-    // Edit button
+    // Edit
     viewEventEditBtn.onclick = () => {
       if (canEditOrDelete) {
-        // Open the create/edit modal with the event data
         openEventModal({
           calendarId,
           eventId: event.id,
@@ -317,7 +301,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       viewEventModal.hide();
     };
 
-    // Delete button
+    // Delete
     viewEventDeleteBtn.onclick = async () => {
       if (!canEditOrDelete) return;
       const confirmDelete = confirm('Are you sure you want to delete this event?');
@@ -325,7 +309,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       try {
         await deleteEvent({ calendarId, id: event.id });
-        // remove from FullCalendar
         const fcEvent = calendars[calendarId]?.getEventById(event.id);
         if (fcEvent) {
           fcEvent.remove();
@@ -343,7 +326,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   ------------------------------------------------------------------ */
   function openEventModal({ calendarId, eventId, title, start, end, attendees }) {
     hideError();
-
     calendarIdField.value = calendarId || '';
     eventIdField.value    = eventId    || '';
     eventTitleField.value = title      || '';
@@ -369,7 +351,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     eventModal.show();
   }
 
-  // UPDATED: Use the real ID from the server response when adding the event
+  // UPDATED: No manual addEvent(); just refetch after creation
   eventForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     hideError();
@@ -406,8 +388,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         await deleteEvent({ calendarId, id: eventId });
       }
 
-      // 1) Create the event on the server
-      const result = await createEvent({
+      // 1) Create event on the server (which also updates $rooms_data)
+      await createEvent({
         calendarId,
         title,
         start: startUTC,
@@ -417,18 +399,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       eventModal.hide();
 
-      // 2) Add the new event to FullCalendar using the *server’s* ID
-      calendars[calendarId]?.addEvent({
-        id: result.event_id, // <-- Use the real ID returned by the server
-        title: result.summary,
-        start: new Date(result.start),
-        end: new Date(result.end),
-        attendees: result.attendees,
-        extendedProps: {
-          organizer: result.organizer,
-          attendees: result.attendees
-        }
-      });
+      // 2) Refetch from the server so we see the new event (no placeholders needed)
+      calendars[calendarId].refetchEvents();
 
     } catch (err) {
       console.error(err);

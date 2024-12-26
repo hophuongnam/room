@@ -279,7 +279,7 @@ get '/api/events' do
         id: event.id,
         title: event.summary,
         start: event.start.date_time || event.start.date,
-        end: event.end.date_time || event.end.date,
+        end:   event.end.date_time   || event.end.date,
         attendees: event.attendees&.map(&:email) || []
       }
     end
@@ -305,6 +305,9 @@ def events_overlap?(calendar_id, start_time_utc, end_time_utc)
   events.items.any?
 end
 
+# -------------------------------------------------
+# CREATE EVENT - UPDATED
+# -------------------------------------------------
 post '/api/create_event' do
   request_data   = JSON.parse(request.body.read)
   calendar_id    = request_data['calendarId']
@@ -318,7 +321,7 @@ post '/api/create_event' do
   creator_email = session[:user_email]
   halt 401, { error: 'Unauthorized' }.to_json unless creator_email
 
-  # Always parse as UTC
+  # Parse as UTC
   start_time_utc = Time.parse(start_time_str).utc
   end_time_utc   = Time.parse(end_time_str).utc
 
@@ -343,9 +346,26 @@ post '/api/create_event' do
     }
   )
 
+  # 1) Create event in Google Calendar
   result = service.insert_event(calendar_id, event)
-  
-  # CHANGED: return full event data so the frontend can match everything exactly
+
+  # 2) Immediately refresh the server's $rooms_data for this calendar.
+  updated_events = fetch_events_for_calendar(calendar_id, service)
+  if $rooms_data[calendar_id]
+    $rooms_data[calendar_id][:events] = updated_events
+    $rooms_data[calendar_id][:last_fetched] = Time.now
+  else
+    $rooms_data[calendar_id] = {
+      calendar_info: { id: calendar_id, summary: 'Unknown', description: '' },
+      events: updated_events,
+      last_fetched: Time.now
+    }
+  end
+
+  # 3) Increment version so the frontend's /api/room_updates poll sees a new version
+  $room_update_tracker[calendar_id] += 1
+
+  # 4) Return the newly created event's data
   content_type :json
   {
     event_id: result.id,
@@ -380,6 +400,15 @@ delete '/api/delete_event' do
 
   service.delete_event(calendar_id, event_id)
   content_type :json
+
+  # Optionally refresh $rooms_data if you want immediate reflection on deletion
+  updated_events = fetch_events_for_calendar(calendar_id, service)
+  if $rooms_data[calendar_id]
+    $rooms_data[calendar_id][:events] = updated_events
+    $rooms_data[calendar_id][:last_fetched] = Time.now
+  end
+  $room_update_tracker[calendar_id] += 1
+
   { status: 'success' }.to_json
 end
 
