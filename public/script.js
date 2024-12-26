@@ -70,6 +70,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return res.json();
   }
 
+  // Create new event
   async function createEvent({ calendarId, title, start, end, participants }) {
     return fetchJSON('/api/create_event', {
       method: 'POST',
@@ -78,6 +79,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
+  // Update existing event
+  async function updateEvent({ calendarId, eventId, title, start, end, participants }) {
+    return fetchJSON('/api/update_event', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ calendarId, eventId, title, start, end, participants }),
+    });
+  }
+
+  // Delete event
   async function deleteEvent({ calendarId, id }) {
     return fetchJSON('/api/delete_event', {
       method: 'DELETE',
@@ -205,14 +216,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       slotMaxTime: '18:00:00',
       initialView: 'timeGridWeek',
       firstDay: 1, // Monday
-
       headerToolbar: {
         left: 'prev,next today',
         center: 'title',
         right: 'dayGridMonth,timeGridWeek,timeGridDay',
       },
-
-      // Provide events from /api/room_data
       events: async (info, successCallback, failureCallback) => {
         try {
           const data = await fetchJSON(`/api/room_data?calendarId=${encodeURIComponent(calendarId)}`);
@@ -225,48 +233,23 @@ document.addEventListener('DOMContentLoaded', async () => {
           hideSpinner();
         }
       },
-
-      // Single-click => default 30-min event
       dateClick: (info) => {
         if (isPast(info.date)) return;
-
-        // Create a default 30-minute slot
+        // default 30 min
         const startTime = info.date;
         const endTime   = new Date(startTime.getTime() + 30 * 60 * 1000);
-
         openEventModal({
           calendarId,
           start: startTime,
           end:   endTime
         });
       },
-
-      // Enable drag-select for time range
       selectable: true,
-
-      // Overlap check to disallow selection if it conflicts with any existing event
       selectAllow: (selectInfo) => {
-        // Past selection disallowed
-        if (isPast(selectInfo.start)) {
-          return false;
-        }
-
-        // Check overlap against existing events
-        const existingEvents = calendar.getEvents();
-        const proposedStart  = selectInfo.start;
-        const proposedEnd    = selectInfo.end;
-
-        for (const ev of existingEvents) {
-          if (proposedStart < ev.end && proposedEnd > ev.start) {
-            // Found an overlap => reject
-            return false;
-          }
-        }
-        // no overlap => allow
+        // disallow selecting in the past
+        if (isPast(selectInfo.start)) return false;
         return true;
       },
-
-      // If selection is allowed => open modal
       select: (selectionInfo) => {
         openEventModal({
           calendarId,
@@ -274,25 +257,26 @@ document.addEventListener('DOMContentLoaded', async () => {
           end:   selectionInfo.end
         });
       },
-
       eventClick: (clickInfo) => {
         openViewEventModal(clickInfo.event, calendarId);
       },
     });
-
     calendar.render();
     calendars[calendarId] = calendar;
   }
 
   /* ------------------------------------------------------------------
-     8) View Existing Event (Modal)
+     8) View Existing Event (Bootstrap Modal)
   ------------------------------------------------------------------ */
   let currentEventId = null;
 
   function openViewEventModal(event, calendarId) {
     hideError();
+
+    // store for reference
     currentEventId = event.id;
 
+    // Fill fields
     viewEventTitle.textContent = event.title || 'Untitled';
     const startTime = event.start ? new Date(event.start) : null;
     const endTime   = event.end   ? new Date(event.end)   : null;
@@ -312,16 +296,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     const attendees = event.extendedProps?.attendees || event.attendees || [];
     viewEventAttendees.textContent = Array.isArray(attendees) ? attendees.join(', ') : '';
 
-    // permission check
+    // Can user edit/delete?
     const canEditOrDelete = (attendees.includes(currentUserEmail) || organizer === currentUserEmail);
     viewEventEditBtn.style.display   = canEditOrDelete ? 'inline-block' : 'none';
     viewEventDeleteBtn.style.display = canEditOrDelete ? 'inline-block' : 'none';
 
+    // Show modal
     viewEventModal.show();
 
-    // Edit
+    // Edit button
     viewEventEditBtn.onclick = () => {
       if (canEditOrDelete) {
+        // Populate create/edit modal
         openEventModal({
           calendarId,
           eventId: event.id,
@@ -334,7 +320,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       viewEventModal.hide();
     };
 
-    // Delete
+    // Delete button
     viewEventDeleteBtn.onclick = async () => {
       if (!canEditOrDelete) return;
       const confirmDelete = confirm('Are you sure you want to delete this event?');
@@ -342,6 +328,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       try {
         await deleteEvent({ calendarId, id: event.id });
+        // remove from FullCalendar
         const fcEvent = calendars[calendarId]?.getEventById(event.id);
         if (fcEvent) {
           fcEvent.remove();
@@ -382,10 +369,19 @@ document.addEventListener('DOMContentLoaded', async () => {
       eventGuestsField.value = '';
     }
 
+    // NEW: If eventId is present => "editing mode" => disable time fields
+    if (eventId) {
+      eventStartField.disabled = true;
+      eventEndField.disabled   = true;
+    } else {
+      eventStartField.disabled = false;
+      eventEndField.disabled   = false;
+    }
+
     eventModal.show();
   }
 
-  // Updated: no manual addEvent(); rely on refetch after creation
+  // Create or Update based on presence of eventId
   eventForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     hideError();
@@ -401,39 +397,57 @@ document.addEventListener('DOMContentLoaded', async () => {
     const startUTC   = localStart.toISOString();
     const endUTC     = localEnd.toISOString();
 
-    if (!calendarId || !title || !startUTC || !endUTC) {
+    // Basic validation
+    if (!calendarId || !title) {
       showError('Missing required fields.');
       return;
     }
-    if (isPast(localStart)) {
-      showError('Cannot create an event in the past.');
-      return;
-    }
-    if (localEnd <= localStart) {
-      showError('End time must be after start time.');
-      return;
+
+    if (!eventId) {
+      // Only validate times if creating
+      if (!startUTC || !endUTC) {
+        showError('Missing start or end time.');
+        return;
+      }
+      if (isPast(localStart)) {
+        showError('Cannot create an event in the past.');
+        return;
+      }
+      if (localEnd <= localStart) {
+        showError('End time must be after start time.');
+        return;
+      }
     }
 
     showSpinner();
 
     try {
-      // If editing => remove old event first
       if (eventId) {
-        await deleteEvent({ calendarId, id: eventId });
+        // EDITING => Do NOT pass times if you don't want them changed on backend
+        // Option 1: pass them as-is (server can ignore or reject changes)
+        // Option 2: skip them altogether. We'll demonstrate Option 1 but times won't matter since fields are disabled:
+        await updateEvent({
+          calendarId,
+          eventId,
+          title,
+          start: startUTC,  // sending anyway, but user can't change it
+          end: endUTC,
+          participants
+        });
+      } else {
+        // CREATING => normal flow
+        await createEvent({
+          calendarId,
+          title,
+          start: startUTC,
+          end: endUTC,
+          participants
+        });
       }
-
-      // 1) Create event on the server (which also updates $rooms_data)
-      await createEvent({
-        calendarId,
-        title,
-        start: startUTC,
-        end: endUTC,
-        participants
-      });
 
       eventModal.hide();
 
-      // 2) Immediately refetch from the server so we see the new event
+      // Refetch from the server to see the new/updated event
       calendars[calendarId].refetchEvents();
 
     } catch (err) {

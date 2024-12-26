@@ -1,4 +1,4 @@
-require 'dotenv/load'               # Load .env variables (if using dotenv)
+require 'dotenv/load'               # Load .env variables if you're using dotenv
 
 # Force the environment to UTC, ignoring system timezone
 ENV['TZ'] = 'UTC'
@@ -10,7 +10,7 @@ require 'rufus-scheduler'
 require 'json'
 require 'base64'
 require 'sqlite3'
-require_relative 'services'
+require_relative 'services'  # Contains fetch_events_for_calendar, load_organizer_credentials, etc.
 
 # -------------------------------------------------
 # Read environment variables
@@ -18,6 +18,7 @@ require_relative 'services'
 PORT            = ENV['PORT'] ? ENV['PORT'].to_i : 3000
 SESSION_SECRET  = ENV['SESSION_SECRET'] || 'fallback_super_secure_secret_key'
 
+# Scopes for normal user OAuth
 USER_OAUTH_SCOPE = ['openid','email','profile']
 
 # -------------------------------------------------
@@ -27,7 +28,7 @@ def user_db
   @user_db ||= SQLite3::Database.new(DB_PATH)
 end
 
-# Enable sessions
+# Enable Sinatra sessions
 enable :sessions
 set :session_secret, SESSION_SECRET
 
@@ -41,6 +42,7 @@ before do
     '/api/room_updates',
     '/api/events',
     '/api/create_event',
+    '/api/update_event',
     '/api/delete_event'
   ]
   if protected_paths.include?(request.path_info)
@@ -50,21 +52,21 @@ before do
   end
 end
 
-# Global data structures (from your base code)
+# Global data structures (shared with services.rb)
 scheduler = Rufus::Scheduler.new
 
 # -------------------------------------------------
-# Load & Watch All Rooms on Startup
+# Load & Watch All Rooms on Startup (Background Thread)
 # -------------------------------------------------
 Thread.new do
   sleep 3
-  load_and_watch_all_rooms  # from services.rb
+  load_and_watch_all_rooms
 end
 
 # -------------------------------------------------
 # Normal User OAuth Flow
 # -------------------------------------------------
-# 1) Initiate user login
+# (1) Initiate user login
 get '/login' do
   client_id  = Google::Auth::ClientId.from_file(CREDENTIALS_PATH)
   authorizer = Google::Auth::UserAuthorizer.new(client_id, USER_OAUTH_SCOPE, nil)
@@ -73,11 +75,10 @@ get '/login' do
     base_url: REDIRECT_URI,
     state: 'user_auth'
   )
-
   redirect auth_url
 end
 
-# 2) Handle user callback in the same /oauth2callback route, but different state
+# (2) Handle user callback (different state from organizer setup)
 get '/oauth2callback' do
   code  = params['code']
   state = params['state']
@@ -103,7 +104,7 @@ get '/oauth2callback' do
     full_name = payload['name']    rescue nil
     picture   = payload['picture'] rescue nil
 
-    # Store the user info in DB if not present
+    # Create a users table if not exist
     user_db.execute <<-SQL
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY,
@@ -115,7 +116,7 @@ get '/oauth2callback' do
       );
     SQL
 
-    # Insert or update the user's name/picture
+    # Insert/update the user’s name/picture
     user_db.execute("INSERT OR IGNORE INTO users (email, name, picture) VALUES (?, ?, ?)",
                     [email, full_name, picture])
     user_db.execute("UPDATE users SET name=?, picture=? WHERE email=?",
@@ -128,7 +129,7 @@ get '/oauth2callback' do
 
     redirect '/'
   else
-    # If it's not setup_organizer (handled in setup.rb) or user_auth
+    # Possibly an invalid state or something else
     "Invalid state for user auth. Access denied."
   end
 end
@@ -148,8 +149,8 @@ get '/api/me' do
   if session[:user_email]
     content_type :json
     {
-      email: session[:user_email],
-      name: session[:user_name],
+      email:   session[:user_email],
+      name:    session[:user_name],
       picture: session[:user_picture]
     }.to_json
   else
@@ -158,7 +159,7 @@ get '/api/me' do
 end
 
 # -------------------------------------------------
-# API Endpoint: Query User Details
+# Example: user_details
 # -------------------------------------------------
 get '/api/user_details' do
   content_type :json
@@ -172,7 +173,7 @@ get '/api/user_details' do
 end
 
 # -------------------------------------------------
-# Webhook for Push Notifications
+# Webhook for Push Notifications from Google
 # -------------------------------------------------
 post '/notifications' do
   request_body = request.body.read
@@ -240,20 +241,21 @@ get '/api/room_data' do
 
   {
     calendar_info: room_info[:calendar_info],
-    events: room_info[:events],
-    last_fetched: room_info[:last_fetched]
+    events:        room_info[:events],
+    last_fetched:  room_info[:last_fetched]
   }.to_json
 end
 
 get '/api/rooms' do
   rooms_array = $rooms_data.map do |cal_id, data|
     {
-      id: cal_id,
-      summary: data[:calendar_info][:summary],
+      id:          cal_id,
+      summary:     data[:calendar_info][:summary],
       description: data[:calendar_info][:description]
     }
   end
 
+  # Example: sort by 'order:N' in description
   sorted = rooms_array.sort_by do |room|
     match = room[:description].to_s.match(/order:(\d+)/)
     match ? match[1].to_i : Float::INFINITY
@@ -263,7 +265,7 @@ get '/api/rooms' do
   { rooms: sorted }.to_json
 end
 
-# Optional: direct Google fetch
+# Optional direct fetch from Google
 get '/api/events' do
   content_type :json
   calendar_id = params['calendarId']
@@ -286,8 +288,10 @@ get '/api/events' do
   }.to_json
 end
 
-# Helper: Check Overlap
-def events_overlap?(calendar_id, start_time_utc, end_time_utc)
+# -------------------------------------------------
+# Helper: Overlap Check
+# -------------------------------------------------
+def events_overlap?(calendar_id, start_time_utc, end_time_utc, ignore_event_id = nil)
   service = Google::Apis::CalendarV3::CalendarService.new
   service.authorization = load_organizer_credentials
 
@@ -302,11 +306,15 @@ def events_overlap?(calendar_id, start_time_utc, end_time_utc)
     time_max: time_max
   )
 
-  events.items.any?
+  events.items.any? do |ev|
+    # If ignoring the same event ID (for an update), skip it
+    next false if ignore_event_id && ev.id == ignore_event_id
+    true
+  end
 end
 
 # -------------------------------------------------
-# CREATE EVENT - UPDATED
+# CREATE EVENT
 # -------------------------------------------------
 post '/api/create_event' do
   request_data   = JSON.parse(request.body.read)
@@ -321,23 +329,23 @@ post '/api/create_event' do
   creator_email = session[:user_email]
   halt 401, { error: 'Unauthorized' }.to_json unless creator_email
 
-  # Parse as UTC
   start_time_utc = Time.parse(start_time_str).utc
   end_time_utc   = Time.parse(end_time_str).utc
 
+  # Overlap check for creation
   if events_overlap?(calendar_id, start_time_utc, end_time_utc)
     halt 409, { error: 'Time slot overlaps an existing event' }.to_json
   end
 
-  # The real 'creator' is stored in extended properties
-  attendees_emails = (participants + [creator_email]).uniq.reject(&:empty?)
   service = Google::Apis::CalendarV3::CalendarService.new
   service.authorization = load_organizer_credentials
 
+  # Build new event
+  attendees_emails = (participants + [creator_email]).uniq.reject(&:empty?)
   event = Google::Apis::CalendarV3::Event.new(
     summary: title,
-    start: { date_time: start_time_utc.iso8601, time_zone: 'UTC' },
-    end:   { date_time: end_time_utc.iso8601,   time_zone: 'UTC' },
+    start:   { date_time: start_time_utc.iso8601, time_zone: 'UTC' },
+    end:     { date_time: end_time_utc.iso8601,   time_zone: 'UTC' },
     attendees: attendees_emails.map { |em| { email: em } },
     extended_properties: {
       private: {
@@ -346,38 +354,102 @@ post '/api/create_event' do
     }
   )
 
-  # 1) Create event in Google Calendar
   result = service.insert_event(calendar_id, event)
 
-  # 2) Immediately refresh the server's $rooms_data for this calendar.
+  # Refresh local in-memory
   updated_events = fetch_events_for_calendar(calendar_id, service)
   if $rooms_data[calendar_id]
-    $rooms_data[calendar_id][:events] = updated_events
+    $rooms_data[calendar_id][:events]      = updated_events
     $rooms_data[calendar_id][:last_fetched] = Time.now
   else
     $rooms_data[calendar_id] = {
       calendar_info: { id: calendar_id, summary: 'Unknown', description: '' },
-      events: updated_events,
-      last_fetched: Time.now
+      events:        updated_events,
+      last_fetched:  Time.now
     }
   end
-
-  # 3) Increment version so the frontend's /api/room_updates poll sees a new version
   $room_update_tracker[calendar_id] += 1
 
-  # 4) Return the newly created event's data
   content_type :json
   {
-    event_id: result.id,
-    summary: result.summary,
-    start:   result.start.date_time || result.start.date,
-    end:     result.end.date_time   || result.end.date,
+    event_id:  result.id,
+    summary:   result.summary,
+    start:     result.start.date_time || result.start.date,
+    end:       result.end.date_time   || result.end.date,
     attendees: result.attendees&.map(&:email) || [],
     organizer: creator_email,
-    status: 'success'
+    status:    'success'
   }.to_json
 end
 
+# -------------------------------------------------
+# UPDATE EVENT - Enforce No Time Change
+# -------------------------------------------------
+put '/api/update_event' do
+  request_data   = JSON.parse(request.body.read)
+  calendar_id    = request_data['calendarId']
+  event_id       = request_data['eventId']
+  title          = request_data['title']
+  # We'll ignore start/end if provided
+  participants   = request_data['participants'] || []
+
+  halt 400, { error: 'Missing fields' }.to_json unless calendar_id && event_id && title
+
+  user_email = session[:user_email]
+  halt 401, { error: 'Unauthorized' }.to_json unless user_email
+
+  service = Google::Apis::CalendarV3::CalendarService.new
+  service.authorization = load_organizer_credentials
+
+  # Load existing event from Google
+  existing_event = service.get_event(calendar_id, event_id)
+  all_attendees  = (existing_event.attendees || []).map(&:email)
+  creator_email  = existing_event.extended_properties&.private&.[]('creator_email')
+
+  # Permission check: must be an attendee or the creator
+  unless all_attendees.include?(user_email) || (creator_email == user_email)
+    halt 403, { error: 'You do not have permission to update this event' }.to_json
+  end
+
+  # We do NOT allow time changes => keep existing_event.start/end
+  # We only update summary, attendees, etc.
+  updated_attendees_emails = (participants + [creator_email]).uniq.reject(&:empty?)
+
+  existing_event.summary   = title
+  existing_event.attendees = updated_attendees_emails.map { |em| { email: em } }
+
+  # Times remain the same
+  result = service.update_event(calendar_id, event_id, existing_event)
+
+  # Refresh local data
+  updated_events = fetch_events_for_calendar(calendar_id, service)
+  if $rooms_data[calendar_id]
+    $rooms_data[calendar_id][:events]      = updated_events
+    $rooms_data[calendar_id][:last_fetched] = Time.now
+  else
+    $rooms_data[calendar_id] = {
+      calendar_info: { id: calendar_id, summary: 'Unknown', description: '' },
+      events:        updated_events,
+      last_fetched:  Time.now
+    }
+  end
+  $room_update_tracker[calendar_id] += 1
+
+  content_type :json
+  {
+    event_id:  result.id,
+    summary:   result.summary,
+    start:     result.start.date_time || result.start.date,
+    end:       result.end.date_time   || result.end.date,
+    attendees: result.attendees&.map(&:email) || [],
+    organizer: creator_email,
+    status:    'success'
+  }.to_json
+end
+
+# -------------------------------------------------
+# DELETE EVENT
+# -------------------------------------------------
 delete '/api/delete_event' do
   request_data = JSON.parse(request.body.read)
   calendar_id  = request_data['calendarId']
@@ -394,24 +466,29 @@ delete '/api/delete_event' do
   all_attendees = (event.attendees || []).map(&:email)
   creator_email = event.extended_properties&.private&.[]('creator_email')
 
+  # Must be attendee or original creator
   unless all_attendees.include?(user_email) || (creator_email == user_email)
     halt 403, { error: 'You do not have permission to delete this event' }.to_json
   end
 
+  # Actually delete from Google
   service.delete_event(calendar_id, event_id)
-  content_type :json
 
-  # Optionally refresh $rooms_data if you want immediate reflection on deletion
+  # Refresh local data
   updated_events = fetch_events_for_calendar(calendar_id, service)
   if $rooms_data[calendar_id]
-    $rooms_data[calendar_id][:events] = updated_events
+    $rooms_data[calendar_id][:events]      = updated_events
     $rooms_data[calendar_id][:last_fetched] = Time.now
   end
   $room_update_tracker[calendar_id] += 1
 
+  content_type :json
   { status: 'success' }.to_json
 end
 
+# -------------------------------------------------
+# Scheduler to Renew Watches
+# -------------------------------------------------
 scheduler.every '23h' do
   begin
     puts 'Renewing watches for all room calendars...'
@@ -421,9 +498,13 @@ scheduler.every '23h' do
   end
 end
 
+# -------------------------------------------------
+# Serve the Frontend
+# -------------------------------------------------
 get '/' do
   send_file File.join(settings.public_folder, 'index.html')
 end
 
+# Sinatra environment & port
 set :environment, :production
 set :port, PORT
