@@ -369,6 +369,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     eventModal.show();
   }
 
+  // UPDATED: Use the real ID from the server response when adding the event
   eventForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     hideError();
@@ -405,7 +406,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         await deleteEvent({ calendarId, id: eventId });
       }
 
-      // Create on server
+      // 1) Create the event on the server
       const result = await createEvent({
         calendarId,
         title,
@@ -416,10 +417,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       eventModal.hide();
 
-      // CHANGED: use exact data returned by the backend (result.*).
-      // This ensures the ID and times match what's in Google Calendar.
+      // 2) Add the new event to FullCalendar using the *server’s* ID
       calendars[calendarId]?.addEvent({
-        id: result.event_id,
+        id: result.event_id, // <-- Use the real ID returned by the server
         title: result.summary,
         start: new Date(result.start),
         end: new Date(result.end),

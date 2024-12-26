@@ -43,7 +43,7 @@ def load_organizer_credentials
   credentials_hash = JSON.parse(credentials_json)
   expiry = credentials_hash['expiry']
   parsed_expiry = if expiry.is_a?(String)
-                    Time.parse(expiry)  # This is also in UTC now
+                    Time.parse(expiry)
                   elsif expiry.is_a?(Integer)
                     Time.at(expiry)
                   else
@@ -68,6 +68,37 @@ def load_organizer_credentials
   credentials
 end
 
+##
+# UPDATED: unify data for each event to include extendedProps
+#
+def fetch_events_for_calendar(calendar_id, service = nil)
+  service ||= begin
+    s = Google::Apis::CalendarV3::CalendarService.new
+    s.authorization = load_organizer_credentials
+    s
+  end
+
+  result = service.list_events(calendar_id, single_events: true, order_by: 'startTime')
+
+  result.items.map do |event|
+    # If you store the original creator in extended properties,
+    # retrieve it here; else fall back to event.organizer.email if you prefer.
+    fetched_organizer = event.extended_properties&.private&.[]('creator_email') || event.organizer&.email
+
+    {
+      id: event.id,
+      title: event.summary,
+      start: event.start.date_time || event.start.date,
+      end:   event.end.date_time   || event.end.date,
+      attendees: (event.attendees&.map(&:email) || []),
+      extendedProps: {
+        organizer: fetched_organizer,
+        attendees: (event.attendees&.map(&:email) || [])
+      }
+    }
+  end
+end
+
 def load_and_watch_all_rooms
   puts "Loading room calendars and setting up watches..."
   credentials = load_organizer_credentials
@@ -90,24 +121,6 @@ def load_and_watch_all_rooms
     setup_watch_for_calendar(cal.id, service)
   end
   puts "Finished loading room calendars."
-end
-
-def fetch_events_for_calendar(calendar_id, service = nil)
-  service ||= begin
-    s = Google::Apis::CalendarV3::CalendarService.new
-    s.authorization = load_organizer_credentials
-    s
-  end
-  result = service.list_events(calendar_id, single_events: true, order_by: 'startTime')
-  result.items.map do |event|
-    {
-      id: event.id,
-      title: event.summary,
-      start: event.start.date_time || event.start.date,
-      end: event.end.date_time || event.end.date,
-      attendees: event.attendees&.map(&:email) || []
-    }
-  end
 end
 
 def setup_watch_for_calendar(calendar_id, service = nil)
