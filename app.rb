@@ -210,9 +210,6 @@ post '/notifications' do
   request_body = request.body.read
   headers = request.env.select { |k, _| k.start_with?('HTTP_') }
 
-  puts "Notification Headers: #{headers.inspect}"
-  puts "Notification Body: #{request_body}"
-
   resource_id    = headers['HTTP_X_GOOG_RESOURCE_ID']
   resource_state = headers['HTTP_X_GOOG_RESOURCE_STATE']
 

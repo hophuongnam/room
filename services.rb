@@ -69,7 +69,7 @@ def load_organizer_credentials
 end
 
 ##
-# UPDATED: unify data for each event to include extendedProps
+# UPDATED: now we fetch events only from 7 days ago onward
 #
 def fetch_events_for_calendar(calendar_id, service = nil)
   service ||= begin
@@ -78,7 +78,15 @@ def fetch_events_for_calendar(calendar_id, service = nil)
     s
   end
 
-  result = service.list_events(calendar_id, single_events: true, order_by: 'startTime')
+  # Calculate time_min = 7 days in the past, in UTC
+  time_min_utc = (Time.now.utc - 7 * 86400).iso8601
+
+  result = service.list_events(
+    calendar_id,
+    single_events: true,
+    order_by: 'startTime',
+    time_min: time_min_utc  # Limit how far back we fetch
+  )
 
   result.items.map do |event|
     # If you store the original creator in extended properties,
