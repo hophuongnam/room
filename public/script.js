@@ -531,40 +531,55 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  chipsInput.addEventListener('blur', (e) => {
-    const raw = chipsInput.value.trim();
-    if (raw) {
-      processRawToken(raw);
-    }
-  });
-
   function processRawToken(raw) {
-    // parse out multiple tokens if user typed "email1, email2"
     const tokens = raw.split(',').map(t => t.trim()).filter(Boolean);
     tokens.forEach(tok => {
       const chipData = resolveUserToken(tok);
+      if (!chipData) {
+        showError(`"${tok}" is not a recognized user or valid email address.`);
+        return; 
+      }
       addChip(chipData);
     });
     chipsInput.value = '';
     renderChipsUI();
   }
 
-  // Attempt to resolve a token to {label, email}
-  // If matches user email => label = "Name <email>"
-  // Else if matches user name => label = "Name <email>" too
+  function isValidEmail(str) {
+    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return re.test(str);
+  }
+
   function resolveUserToken(token) {
-    // find by exact email first
-    let found = prefetchedUsers.find(u => u.email.toLowerCase() === token.toLowerCase());
+    const lowerToken = token.toLowerCase();
+  
+    // Check email in prefetchedUsers
+    let found = prefetchedUsers.find(u => {
+      if (!u.email) return false;
+      return u.email.toLowerCase() === lowerToken;
+    });
     if (found) {
-      return { label: `${found.name} <${found.email}>`, email: found.email };
+      const label = found.name ? `${found.name} <${found.email}>` : found.email;
+      return { label, email: found.email };
     }
-    // find by name if user typed a name
-    found = prefetchedUsers.find(u => u.name.toLowerCase() === token.toLowerCase());
+  
+    // Check name in prefetchedUsers
+    found = prefetchedUsers.find(u => {
+      if (!u.name) return false;
+      return u.name.toLowerCase() === lowerToken;
+    });
     if (found) {
-      return { label: `${found.name} <${found.email}>`, email: found.email };
+      const label = found.name ? `${found.name} <${found.email}>` : found.email;
+      return { label, email: found.email };
     }
-    // fallback => unknown
-    return { label: token, email: token };
+  
+    // Not in user list => must be valid email
+    if (isValidEmail(token)) {
+      return { label: token, email: token };
+    }
+    
+    // Otherwise -> invalid
+    return null;
   }
 
   // CHANGED: basic typeahead demonstration (optional)
