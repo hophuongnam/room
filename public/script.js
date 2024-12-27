@@ -32,7 +32,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   const eventTitleField        = document.getElementById('eventTitle');
   const eventStartField        = document.getElementById('eventStart');
   const eventEndField          = document.getElementById('eventEnd');
-  const eventGuestsField       = document.getElementById('eventGuests');
+  
+  // CHANGED for chips:
+  // We'll remove the old 'eventGuestsField' usage
+  // Instead, we have a container and an input
+  const eventGuestsContainer   = document.getElementById('eventGuestsContainer');
+  const eventGuestsInput       = document.getElementById('eventGuestsInput');
 
   /* ------------------------------------------------------------------
      2) State Variables
@@ -42,7 +47,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   let currentRoomId      = null;
   const calendars        = {}; // { calendarId: FullCalendar instance }
   const lastKnownVersions= {}; // { calendarId: number }
-  const roomMap          = {}; // e.g. { "abc123@group.calendar.google.com": "Room A", ... }
+  const roomMap          = {};
+
+  // CHANGED for user list & version
+  let prefetchedUsers    = [];  // Array of { email, name }
+  let lastKnownUserVersion = 1; // We'll poll /api/user_updates
+
+  // CHANGED: We'll store 'chips' for the invitees:
+  // Each chip => { label: "User One <user1@example.com>", email: "user1@example.com" }
+  let inviteChips        = [];
 
   /* ------------------------------------------------------------------
      3) Helper Functions
@@ -70,33 +83,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     return res.json();
   }
 
-  // Create new event
-  async function createEvent({ calendarId, title, start, end, participants }) {
-    return fetchJSON('/api/create_event', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ calendarId, title, start, end, participants }),
-    });
-  }
-
-  // Update existing event
-  async function updateEvent({ calendarId, eventId, title, start, end, participants }) {
-    return fetchJSON('/api/update_event', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ calendarId, eventId, title, start, end, participants }),
-    });
-  }
-
-  // Delete event
-  async function deleteEvent({ calendarId, id }) {
-    return fetchJSON('/api/delete_event', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ calendarId, id }),
-    });
-  }
-
   function toLocalDateTimeInput(jsDate) {
     const year   = jsDate.getFullYear();
     const month  = String(jsDate.getMonth() + 1).padStart(2, '0');
@@ -105,9 +91,41 @@ document.addEventListener('DOMContentLoaded', async () => {
     const minute = String(jsDate.getMinutes()).padStart(2, '0');
     return `${year}-${month}-${day}T${hour}:${minute}`;
   }
-
   function isPast(dateObj) {
     return dateObj < new Date();
+  }
+
+  function selectionOverlapsExisting(selectInfo, calendarObj) {
+    const existingEvents = calendarObj.getEvents();
+    for (const ev of existingEvents) {
+      if (selectInfo.start < ev.end && selectInfo.end > ev.start) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // CHANGED: user-lists queries (createEvent, updateEvent remain unchanged below)
+  async function createEvent({ calendarId, title, start, end, participants }) {
+    return fetchJSON('/api/create_event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ calendarId, title, start, end, participants }),
+    });
+  }
+  async function updateEvent({ calendarId, eventId, title, start, end, participants }) {
+    return fetchJSON('/api/update_event', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ calendarId, eventId, title, start, end, participants }),
+    });
+  }
+  async function deleteEvent({ calendarId, id }) {
+    return fetchJSON('/api/delete_event', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ calendarId, id }),
+    });
   }
 
   /* ------------------------------------------------------------------
@@ -133,22 +151,29 @@ document.addEventListener('DOMContentLoaded', async () => {
     loginBtn.style.display  = 'inline-block';
   }
 
-  // Login/Logout handlers
-  loginBtn?.addEventListener('click', () => {
-    window.location.href = '/login';
-  });
-  logoutBtn?.addEventListener('click', () => {
-    window.location.href = '/logout';
-  });
+  // Login/Logout
+  loginBtn?.addEventListener('click', () => { window.location.href = '/login'; });
+  logoutBtn?.addEventListener('click', () => { window.location.href = '/logout'; });
 
-  // If not logged in, stop here
+  // If not logged in, stop
   if (!isLoggedIn) {
     return;
   }
 
   /* ------------------------------------------------------------------
-     5) Fetch Rooms
+     5) Fetch Rooms + (CHANGED) load users on page load
   ------------------------------------------------------------------ */
+
+  // 1) Load user list once
+  try {
+    const data = await fetchJSON('/api/all_users');
+    prefetchedUsers = data.users || [];
+    console.log('Loaded all users:', prefetchedUsers);
+  } catch (err) {
+    console.error('Failed to load user list:', err);
+  }
+
+  // 2) Then fetch rooms
   let rooms = [];
   try {
     const data = await fetchJSON('/api/rooms');
@@ -164,7 +189,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  // Populate the dropdown & store in roomMap
+  // populate dropdown
   rooms.forEach((room, index) => {
     const li = document.createElement('li');
     const link = document.createElement('a');
@@ -179,18 +204,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     roomDropdownMenu.appendChild(li);
 
     roomMap[room.id] = room.summary;
-
-    // Auto-select the first room on page load
     if (index === 0) {
       selectRoom(room.id);
     }
   });
 
   /* ------------------------------------------------------------------
-     6) Select Room => Update Dropdown Text & Load Calendar
+     6) Select Room => ...
   ------------------------------------------------------------------ */
   function selectRoom(roomId) {
-    if (currentRoomId === roomId) return; // no change
+    if (currentRoomId === roomId) return;
     currentRoomId = roomId;
     hideError();
     showSpinner();
@@ -199,7 +222,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   /* ------------------------------------------------------------------
-     7) Initialize FullCalendar for a Given Room
+     7) Calendar
   ------------------------------------------------------------------ */
   function initCalendar(calendarId) {
     if (calendars[calendarId]) {
@@ -215,7 +238,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       slotMinTime: '08:00:00',
       slotMaxTime: '18:00:00',
       initialView: 'timeGridWeek',
-      firstDay: 1, // Monday
+      firstDay: 1,
       headerToolbar: {
         left: 'prev,next today',
         center: 'title',
@@ -235,48 +258,42 @@ document.addEventListener('DOMContentLoaded', async () => {
       },
       dateClick: (info) => {
         if (isPast(info.date)) return;
-        // default 30 min
         const startTime = info.date;
-        const endTime   = new Date(startTime.getTime() + 30 * 60 * 1000);
-        openEventModal({
-          calendarId,
-          start: startTime,
-          end:   endTime
-        });
+        const endTime   = new Date(startTime.getTime() + 30*60*1000);
+        openEventModal({ calendarId, start: startTime, end: endTime });
       },
       selectable: true,
       selectAllow: (selectInfo) => {
-        // disallow selecting in the past
         if (isPast(selectInfo.start)) return false;
+        if (selectionOverlapsExisting(selectInfo, calendar)) return false;
         return true;
       },
       select: (selectionInfo) => {
         openEventModal({
           calendarId,
           start: selectionInfo.start,
-          end:   selectionInfo.end
+          end: selectionInfo.end
         });
       },
       eventClick: (clickInfo) => {
         openViewEventModal(clickInfo.event, calendarId);
       },
     });
+
     calendar.render();
     calendars[calendarId] = calendar;
   }
 
   /* ------------------------------------------------------------------
-     8) View Existing Event (Bootstrap Modal)
+     8) View Existing Event
   ------------------------------------------------------------------ */
   let currentEventId = null;
 
   function openViewEventModal(event, calendarId) {
     hideError();
 
-    // store for reference
     currentEventId = event.id;
 
-    // Fill fields
     viewEventTitle.textContent = event.title || 'Untitled';
     const startTime = event.start ? new Date(event.start) : null;
     const endTime   = event.end   ? new Date(event.end)   : null;
@@ -296,18 +313,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     const attendees = event.extendedProps?.attendees || event.attendees || [];
     viewEventAttendees.textContent = Array.isArray(attendees) ? attendees.join(', ') : '';
 
-    // Can user edit/delete?
     const canEditOrDelete = (attendees.includes(currentUserEmail) || organizer === currentUserEmail);
     viewEventEditBtn.style.display   = canEditOrDelete ? 'inline-block' : 'none';
     viewEventDeleteBtn.style.display = canEditOrDelete ? 'inline-block' : 'none';
 
-    // Show modal
     viewEventModal.show();
 
-    // Edit button
+    // Edit
     viewEventEditBtn.onclick = () => {
       if (canEditOrDelete) {
-        // Populate create/edit modal
         openEventModal({
           calendarId,
           eventId: event.id,
@@ -320,7 +334,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       viewEventModal.hide();
     };
 
-    // Delete button
+    // Delete
     viewEventDeleteBtn.onclick = async () => {
       if (!canEditOrDelete) return;
       const confirmDelete = confirm('Are you sure you want to delete this event?');
@@ -328,7 +342,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       try {
         await deleteEvent({ calendarId, id: event.id });
-        // remove from FullCalendar
         const fcEvent = calendars[calendarId]?.getEventById(event.id);
         if (fcEvent) {
           fcEvent.remove();
@@ -342,7 +355,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   /* ------------------------------------------------------------------
-     9) Create/Edit Modal Logic
+     9) Create/Edit Modal => CHIPS-based invite
   ------------------------------------------------------------------ */
   function openEventModal({ calendarId, eventId, title, start, end, attendees }) {
     hideError();
@@ -363,13 +376,32 @@ document.addEventListener('DOMContentLoaded', async () => {
       eventEndField.value = '';
     }
 
+    // Clear old chips
+    inviteChips = [];
+    clearChipsUI();
+
+    // If we have existing attendees => create chips for them
     if (attendees && attendees.length > 0) {
-      eventGuestsField.value = attendees.join(', ');
-    } else {
-      eventGuestsField.value = '';
+      attendees.forEach((email) => {
+        const userObj = prefetchedUsers.find(u => u.email === email);
+        if (userObj) {
+          // known user
+          addChip({
+            label: `${userObj.name} <${userObj.email}>`,
+            email: userObj.email
+          });
+        } else {
+          // unknown
+          addChip({
+            label: email,
+            email: email
+          });
+        }
+      });
+      renderChipsUI();
     }
 
-    // NEW: If eventId is present => "editing mode" => disable time fields
+    // If eventId => editing => disable time
     if (eventId) {
       eventStartField.disabled = true;
       eventEndField.disabled   = true;
@@ -381,30 +413,29 @@ document.addEventListener('DOMContentLoaded', async () => {
     eventModal.show();
   }
 
-  // Create or Update based on presence of eventId
+  // CHANGED: We'll handle the form submission => gather emails from chips
   eventForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     hideError();
 
-    const calendarId   = calendarIdField.value;
-    const eventId      = eventIdField.value;
-    const title        = eventTitleField.value.trim();
-    const guestsStr    = eventGuestsField.value;
-    const participants = guestsStr.split(',').map(s => s.trim()).filter(Boolean);
+    const calendarId = calendarIdField.value;
+    const eventId    = eventIdField.value;
+    const title      = eventTitleField.value.trim();
 
     const localStart = new Date(eventStartField.value);
     const localEnd   = new Date(eventEndField.value);
     const startUTC   = localStart.toISOString();
     const endUTC     = localEnd.toISOString();
 
-    // Basic validation
     if (!calendarId || !title) {
       showError('Missing required fields.');
       return;
     }
 
+    // gather participants from chips
+    const participants = inviteChips.map(ch => ch.email);
+
     if (!eventId) {
-      // Only validate times if creating
       if (!startUTC || !endUTC) {
         showError('Missing start or end time.');
         return;
@@ -420,22 +451,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     showSpinner();
-
     try {
       if (eventId) {
-        // EDITING => Do NOT pass times if you don't want them changed on backend
-        // Option 1: pass them as-is (server can ignore or reject changes)
-        // Option 2: skip them altogether. We'll demonstrate Option 1 but times won't matter since fields are disabled:
         await updateEvent({
           calendarId,
           eventId,
           title,
-          start: startUTC,  // sending anyway, but user can't change it
+          start: startUTC,
           end: endUTC,
           participants
         });
       } else {
-        // CREATING => normal flow
         await createEvent({
           calendarId,
           title,
@@ -444,10 +470,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           participants
         });
       }
-
       eventModal.hide();
-
-      // Refetch from the server to see the new/updated event
       calendars[calendarId].refetchEvents();
 
     } catch (err) {
@@ -458,10 +481,142 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
+  // CHANGED: Chips UI + Typeahead-likes
+  // -------------------------------------
+  const chipsContainer = eventGuestsContainer;   // container div
+  const chipsInput     = eventGuestsInput;       // input
+
+  function clearChipsUI() {
+    chipsContainer.querySelectorAll('.chip').forEach(ch => ch.remove());
+  }
+
+  function renderChipsUI() {
+    clearChipsUI();
+    inviteChips.forEach(chip => {
+      const chipEl = document.createElement('span');
+      chipEl.className = 'chip badge bg-secondary me-1';
+      chipEl.textContent = chip.label;
+
+      // remove button or x
+      const removeBtn = document.createElement('button');
+      removeBtn.type = 'button';
+      removeBtn.className = 'btn-close btn-close-white btn-sm ms-2';
+      removeBtn.style.float = 'right';
+      removeBtn.style.filter = 'invert(1)'; // small trick to show X
+      removeBtn.addEventListener('click', () => {
+        inviteChips = inviteChips.filter(c => c !== chip);
+        renderChipsUI();
+      });
+
+      chipEl.appendChild(removeBtn);
+      chipsContainer.insertBefore(chipEl, chipsInput);
+    });
+  }
+
+  function addChip({ label, email }) {
+    // avoid duplicates?
+    if (!inviteChips.find(ch => ch.email === email)) {
+      inviteChips.push({ label, email });
+    }
+  }
+
+  // Simple approach: on "Enter" or "comma" => create chip
+  chipsInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' || e.key === ',') {
+      e.preventDefault();
+      const raw = chipsInput.value.trim();
+      if (raw) {
+        processRawToken(raw);
+      }
+    }
+  });
+
+  chipsInput.addEventListener('blur', (e) => {
+    const raw = chipsInput.value.trim();
+    if (raw) {
+      processRawToken(raw);
+    }
+  });
+
+  function processRawToken(raw) {
+    // parse out multiple tokens if user typed "email1, email2"
+    const tokens = raw.split(',').map(t => t.trim()).filter(Boolean);
+    tokens.forEach(tok => {
+      const chipData = resolveUserToken(tok);
+      addChip(chipData);
+    });
+    chipsInput.value = '';
+    renderChipsUI();
+  }
+
+  // Attempt to resolve a token to {label, email}
+  // If matches user email => label = "Name <email>"
+  // Else if matches user name => label = "Name <email>" too
+  function resolveUserToken(token) {
+    // find by exact email first
+    let found = prefetchedUsers.find(u => u.email.toLowerCase() === token.toLowerCase());
+    if (found) {
+      return { label: `${found.name} <${found.email}>`, email: found.email };
+    }
+    // find by name if user typed a name
+    found = prefetchedUsers.find(u => u.name.toLowerCase() === token.toLowerCase());
+    if (found) {
+      return { label: `${found.name} <${found.email}>`, email: found.email };
+    }
+    // fallback => unknown
+    return { label: token, email: token };
+  }
+
+  // CHANGED: basic typeahead demonstration (optional)
+  let typeaheadDiv;
+  chipsInput.addEventListener('input', (e) => {
+    const val = e.target.value.toLowerCase().trim();
+    // remove old typeahead
+    if (typeaheadDiv) {
+      typeaheadDiv.remove();
+      typeaheadDiv = null;
+    }
+    if (!val) return;
+
+    // filter prefetchedUsers
+    const matches = prefetchedUsers.filter(u => 
+      u.email.toLowerCase().includes(val) || 
+      u.name.toLowerCase().includes(val)
+    ).slice(0, 5); // top 5 suggestions
+
+    if (matches.length === 0) return;
+    typeaheadDiv = document.createElement('div');
+    typeaheadDiv.className = 'list-group position-absolute';
+    typeaheadDiv.style.zIndex = '9999';
+    typeaheadDiv.style.width = chipsInput.offsetWidth + 'px';
+
+    matches.forEach(user => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'list-group-item list-group-item-action';
+      item.textContent = `${user.name} <${user.email}>`;
+      item.onclick = () => {
+        // user picked this => create chip
+        addChip({
+          label: `${user.name} <${user.email}>`,
+          email: user.email
+        });
+        renderChipsUI();
+        chipsInput.value = '';
+        typeaheadDiv.remove();
+        typeaheadDiv = null;
+      };
+      typeaheadDiv.appendChild(item);
+    });
+
+    chipsInput.parentNode.appendChild(typeaheadDiv);
+  });
+
   /* ------------------------------------------------------------------
-     10) Polling for Room Updates
+     10) Polling for Room Updates + user updates
   ------------------------------------------------------------------ */
   setInterval(checkRoomUpdates, 30000);
+  setInterval(checkUserUpdates, 30000); // poll user updates too
 
   async function checkRoomUpdates() {
     try {
@@ -480,6 +635,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // Initial check
+  // CHANGED: check user list version
+  async function checkUserUpdates() {
+    try {
+      const data = await fetchJSON('/api/user_updates');
+      const serverVer = data.version || 1;
+      if (serverVer > lastKnownUserVersion) {
+        lastKnownUserVersion = serverVer;
+        // re-fetch user list
+        console.log('User list changed, re-fetching...');
+        const allData = await fetchJSON('/api/all_users');
+        prefetchedUsers = allData.users || [];
+      }
+    } catch (err) {
+      console.error('Failed to check user updates:', err);
+    }
+  }
+
+  // Initial checks
   checkRoomUpdates();
+  checkUserUpdates();
 });

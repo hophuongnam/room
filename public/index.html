@@ -41,8 +41,7 @@
         <!-- Rooms Dropdown -->
         <ul class="navbar-nav me-auto mb-2 mb-lg-0">
           <li class="nav-item dropdown">
-            <!-- IMPORTANT: Instead of static text 'Select Room', leave it blank or put a placeholder.
-                 We'll update it dynamically in script.js once we know which room is selected. -->
+            <!-- We'll update this text dynamically in script.js once a room is selected -->
             <a 
               class="nav-link dropdown-toggle" 
               href="#" 
@@ -51,7 +50,7 @@
               data-bs-toggle="dropdown" 
               aria-expanded="false"
             >
-              <!-- initially blank; will be updated in script.js -->
+              <!-- placeholder or blank text -->
             </a>
             <ul class="dropdown-menu" aria-labelledby="roomDropdown" id="roomDropdownMenu">
               <!-- script.js will populate each room as <li><a ...>Room Name</a></li> -->
@@ -93,8 +92,11 @@
     <div class="modal-dialog">
       <div class="modal-content">
         
+        <!-- Updated Header -->
         <div class="modal-header bg-primary text-white">
-          <h5 class="modal-title" id="viewEventModalLabel">Event Details</h5>
+          <h5 class="modal-title" id="viewEventModalLabel">
+            <span id="viewEventTitle"></span>
+          </h5>
           <button 
             type="button" 
             class="btn-close btn-close-white" 
@@ -104,7 +106,6 @@
         </div>
         
         <div class="modal-body">
-          <p><strong>Title:</strong> <span id="viewEventTitle"></span></p>
           <p><strong>Start:</strong> <span id="viewEventStart"></span></p>
           <p><strong>End:</strong> <span id="viewEventEnd"></span></p>
           <p><strong>Organizer:</strong> <span id="viewEventOrganizer"></span></p>
@@ -165,10 +166,21 @@
               </div>
             </div>
 
+            <!-- CHANGED: Replace the old single input with a container + an input for chips-based UI -->
             <div class="mb-3">
-              <label for="eventGuests" class="form-label">Invite Participants (comma-separated emails)</label>
-              <input type="text" class="form-control" id="eventGuests" />
+              <label for="eventGuestsInput" class="form-label">Invite Participants (comma-separated emails)</label>
+              <!-- This is the container for chips + input -->
+              <div id="eventGuestsContainer" class="chips-container">
+                <input 
+                  type="text" 
+                  class="chips-input form-control" 
+                  id="eventGuestsInput" 
+                  placeholder="Type email or name..." 
+                />
+              </div>
             </div>
+            <!-- End CHANGED -->
+
           </div>
           <div class="modal-footer">
             <button type="submit" class="btn btn-primary">Save Event</button>

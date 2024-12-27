@@ -1,5 +1,4 @@
-require 'dotenv/load'               # Load .env variables if you're using dotenv
-
+require 'dotenv/load'
 # Force the environment to UTC, ignoring system timezone
 ENV['TZ'] = 'UTC'
 
@@ -13,27 +12,35 @@ require 'sqlite3'
 require_relative 'services'  # Contains fetch_events_for_calendar, load_organizer_credentials, etc.
 
 # -------------------------------------------------
-# Read environment variables
+# Environment & Basic Config
 # -------------------------------------------------
 PORT            = ENV['PORT'] ? ENV['PORT'].to_i : 3000
 SESSION_SECRET  = ENV['SESSION_SECRET'] || 'fallback_super_secure_secret_key'
-
-# Scopes for normal user OAuth
 USER_OAUTH_SCOPE = ['openid','email','profile']
 
-# -------------------------------------------------
-# Database & Basic Config
-# -------------------------------------------------
 def user_db
   @user_db ||= SQLite3::Database.new(DB_PATH)
 end
 
-# Enable Sinatra sessions
 enable :sessions
 set :session_secret, SESSION_SECRET
 
 # -------------------------------------------------
-# Server-Side Guard for Auth
+# Global in-memory structures
+# -------------------------------------------------
+scheduler = Rufus::Scheduler.new
+
+# -------------------------------------------------
+# NEW: user_list_version to detect user-list changes
+# -------------------------------------------------
+$user_list_version = 1
+
+def bump_user_list_version
+  $user_list_version += 1
+end
+
+# -------------------------------------------------
+# Auth Guard
 # -------------------------------------------------
 before do
   protected_paths = [
@@ -52,11 +59,8 @@ before do
   end
 end
 
-# Global data structures (shared with services.rb)
-scheduler = Rufus::Scheduler.new
-
 # -------------------------------------------------
-# Load & Watch All Rooms on Startup (Background Thread)
+# Load & Watch All Rooms on Startup
 # -------------------------------------------------
 Thread.new do
   sleep 3
@@ -78,7 +82,7 @@ get '/login' do
   redirect auth_url
 end
 
-# (2) Handle user callback (different state from organizer setup)
+# (2) Handle user callback
 get '/oauth2callback' do
   code  = params['code']
   state = params['state']
@@ -93,7 +97,6 @@ get '/oauth2callback' do
       base_url: REDIRECT_URI
     )
 
-    # Extract user info from ID token
     id_token = credentials.id_token
     if id_token.nil?
       return "Could not retrieve user info. Check scopes."
@@ -104,7 +107,7 @@ get '/oauth2callback' do
     full_name = payload['name']    rescue nil
     picture   = payload['picture'] rescue nil
 
-    # Create a users table if not exist
+    # Make sure users table exists
     user_db.execute <<-SQL
       CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY,
@@ -116,11 +119,19 @@ get '/oauth2callback' do
       );
     SQL
 
-    # Insert/update the user’s name/picture
-    user_db.execute("INSERT OR IGNORE INTO users (email, name, picture) VALUES (?, ?, ?)",
-                    [email, full_name, picture])
-    user_db.execute("UPDATE users SET name=?, picture=? WHERE email=?",
-                    [full_name, picture, email])
+    # Check if user exists
+    row = user_db.execute("SELECT id FROM users WHERE email=?", [email]).first
+    if row.nil?
+      # Insert new user
+      user_db.execute("INSERT INTO users (email, name, picture) VALUES (?, ?, ?)",
+                      [email, full_name, picture])
+      bump_user_list_version
+    else
+      # Update existing user
+      user_db.execute("UPDATE users SET name=?, picture=? WHERE email=?",
+                      [full_name, picture, email])
+      bump_user_list_version
+    end
 
     # Set session
     session[:user_email]   = email
@@ -129,7 +140,6 @@ get '/oauth2callback' do
 
     redirect '/'
   else
-    # Possibly an invalid state or something else
     "Invalid state for user auth. Access denied."
   end
 end
@@ -143,7 +153,7 @@ get '/logout' do
 end
 
 # -------------------------------------------------
-# API Endpoint: Check if user is logged in
+# API: /api/me
 # -------------------------------------------------
 get '/api/me' do
   if session[:user_email]
@@ -159,7 +169,28 @@ get '/api/me' do
 end
 
 # -------------------------------------------------
-# Example: user_details
+# GET /api/all_users => Prefetch entire user list
+# -------------------------------------------------
+get '/api/all_users' do
+  content_type :json
+  rows = user_db.execute("SELECT email, name FROM users WHERE is_organizer = 0")
+  users = rows.map do |row|
+    { email: row[0], name: row[1] }
+  end
+  { users: users }.to_json
+end
+
+# -------------------------------------------------
+# GET /api/user_updates => returns {"version": <int>}
+# for poll or push if you prefer
+# -------------------------------------------------
+get '/api/user_updates' do
+  content_type :json
+  { version: $user_list_version }.to_json
+end
+
+# -------------------------------------------------
+# GET /api/user_details => existing route
 # -------------------------------------------------
 get '/api/user_details' do
   content_type :json
@@ -255,7 +286,7 @@ get '/api/rooms' do
     }
   end
 
-  # Example: sort by 'order:N' in description
+  # Sort by 'order:N' in description (if present)
   sorted = rooms_array.sort_by do |room|
     match = room[:description].to_s.match(/order:(\d+)/)
     match ? match[1].to_i : Float::INFINITY
@@ -265,7 +296,7 @@ get '/api/rooms' do
   { rooms: sorted }.to_json
 end
 
-# Optional direct fetch from Google
+# Optional: direct fetch from Google
 get '/api/events' do
   content_type :json
   calendar_id = params['calendarId']
@@ -307,7 +338,6 @@ def events_overlap?(calendar_id, start_time_utc, end_time_utc, ignore_event_id =
   )
 
   events.items.any? do |ev|
-    # If ignoring the same event ID (for an update), skip it
     next false if ignore_event_id && ev.id == ignore_event_id
     true
   end
@@ -332,7 +362,7 @@ post '/api/create_event' do
   start_time_utc = Time.parse(start_time_str).utc
   end_time_utc   = Time.parse(end_time_str).utc
 
-  # Overlap check for creation
+  # Overlap check
   if events_overlap?(calendar_id, start_time_utc, end_time_utc)
     halt 409, { error: 'Time slot overlaps an existing event' }.to_json
   end
@@ -340,7 +370,6 @@ post '/api/create_event' do
   service = Google::Apis::CalendarV3::CalendarService.new
   service.authorization = load_organizer_credentials
 
-  # Build new event
   attendees_emails = (participants + [creator_email]).uniq.reject(&:empty?)
   event = Google::Apis::CalendarV3::Event.new(
     summary: title,
@@ -356,7 +385,6 @@ post '/api/create_event' do
 
   result = service.insert_event(calendar_id, event)
 
-  # Refresh local in-memory
   updated_events = fetch_events_for_calendar(calendar_id, service)
   if $rooms_data[calendar_id]
     $rooms_data[calendar_id][:events]      = updated_events
@@ -383,14 +411,13 @@ post '/api/create_event' do
 end
 
 # -------------------------------------------------
-# UPDATE EVENT - Enforce No Time Change
+# UPDATE EVENT - No time change
 # -------------------------------------------------
 put '/api/update_event' do
   request_data   = JSON.parse(request.body.read)
   calendar_id    = request_data['calendarId']
   event_id       = request_data['eventId']
   title          = request_data['title']
-  # We'll ignore start/end if provided
   participants   = request_data['participants'] || []
 
   halt 400, { error: 'Missing fields' }.to_json unless calendar_id && event_id && title
@@ -401,27 +428,21 @@ put '/api/update_event' do
   service = Google::Apis::CalendarV3::CalendarService.new
   service.authorization = load_organizer_credentials
 
-  # Load existing event from Google
   existing_event = service.get_event(calendar_id, event_id)
   all_attendees  = (existing_event.attendees || []).map(&:email)
   creator_email  = existing_event.extended_properties&.private&.[]('creator_email')
 
-  # Permission check: must be an attendee or the creator
   unless all_attendees.include?(user_email) || (creator_email == user_email)
     halt 403, { error: 'You do not have permission to update this event' }.to_json
   end
 
-  # We do NOT allow time changes => keep existing_event.start/end
-  # We only update summary, attendees, etc.
+  # Keep old times => no overlap check
   updated_attendees_emails = (participants + [creator_email]).uniq.reject(&:empty?)
-
   existing_event.summary   = title
   existing_event.attendees = updated_attendees_emails.map { |em| { email: em } }
 
-  # Times remain the same
   result = service.update_event(calendar_id, event_id, existing_event)
 
-  # Refresh local data
   updated_events = fetch_events_for_calendar(calendar_id, service)
   if $rooms_data[calendar_id]
     $rooms_data[calendar_id][:events]      = updated_events
@@ -466,15 +487,12 @@ delete '/api/delete_event' do
   all_attendees = (event.attendees || []).map(&:email)
   creator_email = event.extended_properties&.private&.[]('creator_email')
 
-  # Must be attendee or original creator
   unless all_attendees.include?(user_email) || (creator_email == user_email)
     halt 403, { error: 'You do not have permission to delete this event' }.to_json
   end
 
-  # Actually delete from Google
   service.delete_event(calendar_id, event_id)
 
-  # Refresh local data
   updated_events = fetch_events_for_calendar(calendar_id, service)
   if $rooms_data[calendar_id]
     $rooms_data[calendar_id][:events]      = updated_events
@@ -505,6 +523,5 @@ get '/' do
   send_file File.join(settings.public_folder, 'index.html')
 end
 
-# Sinatra environment & port
 set :environment, :production
 set :port, PORT

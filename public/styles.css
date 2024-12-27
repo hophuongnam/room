@@ -56,10 +56,34 @@
    color: #fff !important;
    cursor: pointer;
  }
+
+/* For chips UI in the invite container */
+.chips-container {
+   display: flex;
+   align-items: center;
+   flex-wrap: wrap;
+   gap: 4px;
+   min-height: 40px;
+   border: 1px solid #ccc;
+   padding: 4px;
+   border-radius: 4px;
+   position: relative;
+ }
  
- /* ------------------------
-    Modals
- ------------------------ */
- /* The modals are standard Bootstrap. 
-    If you want to add custom styling, do so here. */
+ .chips-input {
+   border: none;
+   outline: none;
+   flex: 1;
+   min-width: 150px;
+ }
+ 
+ .chip {
+   display: inline-flex;
+   align-items: center;
+   padding: 4px 8px;
+   border-radius: 16px;
+   background-color: var(--secondary-color);
+   color: #fff;
+ }
+ 
  
