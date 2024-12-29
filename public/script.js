@@ -32,10 +32,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const eventTitleField        = document.getElementById('eventTitle');
   const eventStartField        = document.getElementById('eventStart');
   const eventEndField          = document.getElementById('eventEnd');
-  
-  // CHANGED for chips:
-  // We'll remove the old 'eventGuestsField' usage
-  // Instead, we have a container and an input
   const eventGuestsContainer   = document.getElementById('eventGuestsContainer');
   const eventGuestsInput       = document.getElementById('eventGuestsInput');
 
@@ -49,12 +45,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   const lastKnownVersions= {}; // { calendarId: number }
   const roomMap          = {};
 
-  // CHANGED for user list & version
+  // For user-list
   let prefetchedUsers    = [];  // Array of { email, name }
-  let lastKnownUserVersion = 1; // We'll poll /api/user_updates
+  let lastKnownUserVersion = 1;
 
-  // CHANGED: We'll store 'chips' for the invitees:
-  // Each chip => { label: "User One <user1@example.com>", email: "user1@example.com" }
+  // For chips-based participants
   let inviteChips        = [];
 
   /* ------------------------------------------------------------------
@@ -91,10 +86,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     const minute = String(jsDate.getMinutes()).padStart(2, '0');
     return `${year}-${month}-${day}T${hour}:${minute}`;
   }
-  function isPast(dateObj) {
-    return dateObj < new Date();
-  }
 
+  // FRONTEND Overlap Check:
+  // This checks *all* events, including linked ones, as per your request.
   function selectionOverlapsExisting(selectInfo, calendarObj) {
     const existingEvents = calendarObj.getEvents();
     for (const ev of existingEvents) {
@@ -105,7 +99,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return false;
   }
 
-  // CHANGED: user-lists queries (createEvent, updateEvent remain unchanged below)
+  // CRUD helpers
   async function createEvent({ calendarId, title, start, end, participants }) {
     return fetchJSON('/api/create_event', {
       method: 'POST',
@@ -151,29 +145,21 @@ document.addEventListener('DOMContentLoaded', async () => {
     loginBtn.style.display  = 'inline-block';
   }
 
-  // Login/Logout
-  loginBtn?.addEventListener('click', () => { window.location.href = '/login'; });
-  logoutBtn?.addEventListener('click', () => { window.location.href = '/logout'; });
-
   // If not logged in, stop
   if (!isLoggedIn) {
     return;
   }
 
   /* ------------------------------------------------------------------
-     5) Fetch Rooms + (CHANGED) load users on page load
+     5) Fetch user list + rooms
   ------------------------------------------------------------------ */
-
-  // 1) Load user list once
   try {
     const data = await fetchJSON('/api/all_users');
     prefetchedUsers = data.users || [];
-    console.log('Loaded all users:', prefetchedUsers);
   } catch (err) {
     console.error('Failed to load user list:', err);
   }
 
-  // 2) Then fetch rooms
   let rooms = [];
   try {
     const data = await fetchJSON('/api/rooms');
@@ -189,7 +175,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  // populate dropdown
+  // Populate a dropdown or list
   rooms.forEach((room, index) => {
     const li = document.createElement('li');
     const link = document.createElement('a');
@@ -202,15 +188,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     li.appendChild(link);
     roomDropdownMenu.appendChild(li);
-
     roomMap[room.id] = room.summary;
+
+    // auto-select the first room
     if (index === 0) {
       selectRoom(room.id);
     }
   });
 
   /* ------------------------------------------------------------------
-     6) Select Room => ...
+     6) Select a room => show the calendar
   ------------------------------------------------------------------ */
   function selectRoom(roomId) {
     if (currentRoomId === roomId) return;
@@ -221,9 +208,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     initCalendar(roomId);
   }
 
-  /* ------------------------------------------------------------------
-     7) Calendar
-  ------------------------------------------------------------------ */
   function initCalendar(calendarId) {
     if (calendars[calendarId]) {
       calendars[calendarId].refetchEvents();
@@ -257,14 +241,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       },
       dateClick: (info) => {
-        if (isPast(info.date)) return;
+        // user cannot create an event in the past
+        if (info.date < new Date()) return;
         const startTime = info.date;
         const endTime   = new Date(startTime.getTime() + 30*60*1000);
         openEventModal({ calendarId, start: startTime, end: endTime });
       },
       selectable: true,
+      // IMPORTANT: The frontend checks *all* events for overlaps (including linked).
       selectAllow: (selectInfo) => {
-        if (isPast(selectInfo.start)) return false;
+        if (selectInfo.start < new Date()) return false; // no past
         if (selectionOverlapsExisting(selectInfo, calendar)) return false;
         return true;
       },
@@ -277,7 +263,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       },
       eventClick: (clickInfo) => {
         openViewEventModal(clickInfo.event, calendarId);
-      },
+      }
     });
 
     calendar.render();
@@ -285,13 +271,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   /* ------------------------------------------------------------------
-     8) View Existing Event
+     7) View Existing Event
   ------------------------------------------------------------------ */
   let currentEventId = null;
 
   function openViewEventModal(event, calendarId) {
     hideError();
-
     currentEventId = event.id;
 
     viewEventTitle.textContent = event.title || 'Untitled';
@@ -313,7 +298,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     const attendees = event.extendedProps?.attendees || event.attendees || [];
     viewEventAttendees.textContent = Array.isArray(attendees) ? attendees.join(', ') : '';
 
-    const canEditOrDelete = (attendees.includes(currentUserEmail) || organizer === currentUserEmail);
+    const isLinked = (event.extendedProps?.is_linked === true || event.extendedProps?.is_linked === 'true');
+
+    // If it is a linked event => no edit/delete. Otherwise, check if user is organizer or attendee.
+    let canEditOrDelete = true;
+    if (isLinked) {
+      canEditOrDelete = false;
+    } else {
+      if (!attendees.includes(currentUserEmail) && organizer !== currentUserEmail) {
+        canEditOrDelete = false;
+      }
+    }
+
     viewEventEditBtn.style.display   = canEditOrDelete ? 'inline-block' : 'none';
     viewEventDeleteBtn.style.display = canEditOrDelete ? 'inline-block' : 'none';
 
@@ -343,9 +339,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       try {
         await deleteEvent({ calendarId, id: event.id });
         const fcEvent = calendars[calendarId]?.getEventById(event.id);
-        if (fcEvent) {
-          fcEvent.remove();
-        }
+        if (fcEvent) fcEvent.remove();
         viewEventModal.hide();
       } catch (err) {
         console.error(err);
@@ -355,7 +349,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   /* ------------------------------------------------------------------
-     9) Create/Edit Modal => CHIPS-based invite
+     8) Create/Edit Modal => Chips for participants
   ------------------------------------------------------------------ */
   function openEventModal({ calendarId, eventId, title, start, end, attendees }) {
     hideError();
@@ -369,7 +363,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     } else {
       eventStartField.value = '';
     }
-
     if (end) {
       eventEndField.value = toLocalDateTimeInput(new Date(end));
     } else {
@@ -380,28 +373,22 @@ document.addEventListener('DOMContentLoaded', async () => {
     inviteChips = [];
     clearChipsUI();
 
-    // If we have existing attendees => create chips for them
     if (attendees && attendees.length > 0) {
       attendees.forEach((email) => {
         const userObj = prefetchedUsers.find(u => u.email === email);
         if (userObj) {
-          // known user
           addChip({
             label: `${userObj.name} <${userObj.email}>`,
             email: userObj.email
           });
         } else {
-          // unknown
-          addChip({
-            label: email,
-            email: email
-          });
+          addChip({ label: email, email: email });
         }
       });
       renderChipsUI();
     }
 
-    // If eventId => editing => disable time
+    // If editing => disallow changing the time
     if (eventId) {
       eventStartField.disabled = true;
       eventEndField.disabled   = true;
@@ -413,7 +400,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     eventModal.show();
   }
 
-  // CHANGED: We'll handle the form submission => gather emails from chips
   eventForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     hideError();
@@ -432,15 +418,15 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-    // gather participants from chips
     const participants = inviteChips.map(ch => ch.email);
 
+    // For new events, ensure the user doesn't pick an invalid time
     if (!eventId) {
       if (!startUTC || !endUTC) {
         showError('Missing start or end time.');
         return;
       }
-      if (isPast(localStart)) {
+      if (localStart < new Date()) {
         showError('Cannot create an event in the past.');
         return;
       }
@@ -453,26 +439,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     showSpinner();
     try {
       if (eventId) {
-        await updateEvent({
-          calendarId,
-          eventId,
-          title,
-          start: startUTC,
-          end: endUTC,
-          participants
-        });
+        await updateEvent({ calendarId, eventId, title, start: startUTC, end: endUTC, participants });
       } else {
-        await createEvent({
-          calendarId,
-          title,
-          start: startUTC,
-          end: endUTC,
-          participants
-        });
+        await createEvent({ calendarId, title, start: startUTC, end: endUTC, participants });
       }
       eventModal.hide();
       calendars[calendarId].refetchEvents();
-
     } catch (err) {
       console.error(err);
       showError('Failed to save event.');
@@ -481,10 +453,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // CHANGED: Chips UI + Typeahead-likes
-  // -------------------------------------
-  const chipsContainer = eventGuestsContainer;   // container div
-  const chipsInput     = eventGuestsInput;       // input
+  // Chips UI
+  const chipsContainer = eventGuestsContainer;
+  const chipsInput     = eventGuestsInput;
 
   function clearChipsUI() {
     chipsContainer.querySelectorAll('.chip').forEach(ch => ch.remove());
@@ -497,12 +468,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       chipEl.className = 'chip badge bg-secondary me-1';
       chipEl.textContent = chip.label;
 
-      // remove button or x
       const removeBtn = document.createElement('button');
       removeBtn.type = 'button';
       removeBtn.className = 'btn-close btn-close-white btn-sm ms-2';
       removeBtn.style.float = 'right';
-      removeBtn.style.filter = 'invert(1)'; // small trick to show X
+      removeBtn.style.filter = 'invert(1)';
       removeBtn.addEventListener('click', () => {
         inviteChips = inviteChips.filter(c => c !== chip);
         renderChipsUI();
@@ -514,13 +484,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function addChip({ label, email }) {
-    // avoid duplicates?
     if (!inviteChips.find(ch => ch.email === email)) {
       inviteChips.push({ label, email });
     }
   }
 
-  // Simple approach: on "Enter" or "comma" => create chip
   chipsInput.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' || e.key === ',') {
       e.preventDefault();
@@ -536,7 +504,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     tokens.forEach(tok => {
       const chipData = resolveUserToken(tok);
       if (!chipData) {
-        showError(`"${tok}" is not a recognized user or valid email address.`);
+        showError(`"${tok}" is not recognized as a user or valid email address.`);
         return; 
       }
       addChip(chipData);
@@ -552,52 +520,43 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function resolveUserToken(token) {
     const lowerToken = token.toLowerCase();
-  
-    // Check email in prefetchedUsers
+    // Check exact email in prefetchedUsers
     let found = prefetchedUsers.find(u => {
-      if (!u.email) return false;
-      return u.email.toLowerCase() === lowerToken;
+      return u.email && u.email.toLowerCase() === lowerToken;
     });
     if (found) {
       const label = found.name ? `${found.name} <${found.email}>` : found.email;
       return { label, email: found.email };
     }
-  
-    // Check name in prefetchedUsers
+    // Check name
     found = prefetchedUsers.find(u => {
-      if (!u.name) return false;
-      return u.name.toLowerCase() === lowerToken;
+      return u.name && u.name.toLowerCase() === lowerToken;
     });
     if (found) {
       const label = found.name ? `${found.name} <${found.email}>` : found.email;
       return { label, email: found.email };
     }
-  
-    // Not in user list => must be valid email
+    // Otherwise must be valid email
     if (isValidEmail(token)) {
       return { label: token, email: token };
     }
-    
-    // Otherwise -> invalid
     return null;
   }
 
-  // CHANGED: basic typeahead demonstration (optional)
+  // Basic typeahead
   let typeaheadDiv;
   chipsInput.addEventListener('input', (e) => {
     const val = e.target.value.toLowerCase().trim();
-    // remove old typeahead
     if (typeaheadDiv) {
       typeaheadDiv.remove();
       typeaheadDiv = null;
     }
     if (!val) return;
 
-    // filter prefetchedUsers
     const matches = prefetchedUsers.filter(u => 
       u.email.toLowerCase().includes(val) || 
-      u.name.toLowerCase().includes(val)
-    ).slice(0, 5); // top 5 suggestions
+      (u.name && u.name.toLowerCase().includes(val))
+    ).slice(0, 5);
 
     if (matches.length === 0) return;
     typeaheadDiv = document.createElement('div');
@@ -611,7 +570,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       item.className = 'list-group-item list-group-item-action';
       item.textContent = `${user.name} <${user.email}>`;
       item.onclick = () => {
-        // user picked this => create chip
         addChip({
           label: `${user.name} <${user.email}>`,
           email: user.email
@@ -623,15 +581,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       };
       typeaheadDiv.appendChild(item);
     });
-
     chipsInput.parentNode.appendChild(typeaheadDiv);
   });
 
   /* ------------------------------------------------------------------
-     10) Polling for Room Updates + user updates
+     9) Polling for Room & User Updates
   ------------------------------------------------------------------ */
   setInterval(checkRoomUpdates, 30000);
-  setInterval(checkUserUpdates, 30000); // poll user updates too
+  setInterval(checkUserUpdates, 30000);
 
   async function checkRoomUpdates() {
     try {
@@ -650,7 +607,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // CHANGED: check user list version
   async function checkUserUpdates() {
     try {
       const data = await fetchJSON('/api/user_updates');
@@ -658,7 +614,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       if (serverVer > lastKnownUserVersion) {
         lastKnownUserVersion = serverVer;
         // re-fetch user list
-        console.log('User list changed, re-fetching...');
         const allData = await fetchJSON('/api/all_users');
         prefetchedUsers = allData.users || [];
       }

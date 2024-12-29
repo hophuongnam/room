@@ -10,15 +10,18 @@ require 'securerandom'
 require 'time'
 
 CREDENTIALS_PATH = 'credentials.json'
-REDIRECT_URI = ENV['REDIRECT_URI']
-WEBHOOK_ADDRESS = ENV['WEBHOOK_ADDRESS']
-DB_PATH = 'users.db'
+REDIRECT_URI     = ENV['REDIRECT_URI']
+WEBHOOK_ADDRESS  = ENV['WEBHOOK_ADDRESS']
+DB_PATH          = 'users.db'
 
 # Global in-memory structures (shared with app.rb).
-$calendar_watch_map = {}
+$calendar_watch_map  = {}
 $room_update_tracker = Hash.new(0)
-$rooms_data = {}
+$rooms_data          = {}
 
+# -------------------------------------------------
+# Database
+# -------------------------------------------------
 def initialize_database
   db = SQLite3::Database.new(DB_PATH)
   db.execute <<-SQL
@@ -68,9 +71,42 @@ def load_organizer_credentials
   credentials
 end
 
-##
-# UPDATED: now we fetch events only from 7 days ago onward
-#
+# -------------------------------------------------
+# Parse room role (super / sub / normal) from description
+# -------------------------------------------------
+def parse_room_role_and_links(cal)
+  desc = cal.description.to_s
+  role = 'normal'
+  sub_rooms = []
+  super_room = nil
+
+  # We assume the description might look like:
+  #   "role: super\nsub: Room B\nsub: Room C"
+  # or "role: sub\nsuper: Room A"
+  desc.lines.each do |line|
+    line.strip!
+    if line.start_with?('role:')
+      role = line.split(':', 2)[1].strip.downcase
+    elsif line.start_with?('sub:')
+      sub_name = line.split(':', 2)[1].strip
+      sub_rooms << sub_name unless sub_name.empty?
+    elsif line.start_with?('super:')
+      super_name = line.split(':', 2)[1].strip
+      super_room = super_name unless super_name.empty?
+    end
+  end
+
+  {
+    role:       role,
+    sub_rooms:  sub_rooms,     # array of names
+    super_room: super_room     # name string
+  }
+end
+
+# -------------------------------------------------
+# Fetch events (7 days in the past onward),
+# tagging them with colors / extended props for linked events
+# -------------------------------------------------
 def fetch_events_for_calendar(calendar_id, service = nil)
   service ||= begin
     s = Google::Apis::CalendarV3::CalendarService.new
@@ -78,20 +114,28 @@ def fetch_events_for_calendar(calendar_id, service = nil)
     s
   end
 
-  # Calculate time_min = 7 days in the past, in UTC
   time_min_utc = (Time.now.utc - 7 * 86400).iso8601
 
   result = service.list_events(
     calendar_id,
     single_events: true,
     order_by: 'startTime',
-    time_min: time_min_utc  # Limit how far back we fetch
+    time_min: time_min_utc
   )
 
+  # figure out this room's role data
+  this_room_data = $rooms_data[calendar_id]
+  this_role      = this_room_data[:role] if this_room_data
+  this_role    ||= 'normal'  # fallback
+
   result.items.map do |event|
-    # If you store the original creator in extended properties,
-    # retrieve it here; else fall back to event.organizer.email if you prefer.
-    fetched_organizer = event.extended_properties&.private&.[]('creator_email') || event.organizer&.email
+    priv = event.extended_properties&.private
+    is_linked  = priv&.[]('is_linked') == 'true'
+    orig_cal   = priv&.[]('original_calendar_id')
+    orig_ev_id = priv&.[]('original_event_id')
+
+    # If event's original_calendar_id != this calendar => it's a linked event
+    border_color = determine_linked_event_color(calendar_id, orig_cal)
 
     {
       id: event.id,
@@ -100,37 +144,62 @@ def fetch_events_for_calendar(calendar_id, service = nil)
       end:   event.end.date_time   || event.end.date,
       attendees: (event.attendees&.map(&:email) || []),
       extendedProps: {
-        organizer: fetched_organizer,
-        attendees: (event.attendees&.map(&:email) || [])
-      }
+        organizer: priv&.[]('creator_email') || event.organizer&.email,
+        is_linked: is_linked,
+        original_calendar_id: orig_cal,
+        original_event_id:    orig_ev_id
+      },
+      borderColor: border_color
     }
   end
 end
 
+# A simple function to choose a color for linked events
+def determine_linked_event_color(current_calendar_id, original_calendar_id)
+  return '' if original_calendar_id.nil? || original_calendar_id == current_calendar_id
+  # This means it's a linked event => mark with a special color
+  '#ff0000'
+end
+
+# -------------------------------------------------
+# Called once on startup, loads all "type:room" calendars
+# Also sets up watch channels for push notifications
+# -------------------------------------------------
 def load_and_watch_all_rooms
   puts "Loading room calendars and setting up watches..."
   credentials = load_organizer_credentials
-  service = Google::Apis::CalendarV3::CalendarService.new
+  service     = Google::Apis::CalendarV3::CalendarService.new
   service.authorization = credentials
 
   calendar_list = service.list_calendar_lists
-  room_calendars = calendar_list.items.select { |cal| cal.description&.include?('type:room') }
+  room_calendars = calendar_list.items.select do |cal|
+    cal.description.to_s.include?('type:room')
+  end
 
   room_calendars.each do |cal|
+    parsed = parse_room_role_and_links(cal)
+
     $rooms_data[cal.id] = {
       calendar_info: {
         id: cal.id,
         summary: cal.summary,
         description: cal.description
       },
-      events: fetch_events_for_calendar(cal.id, service),
-      last_fetched: Time.now  # UTC now
+      role:       parsed[:role],
+      sub_rooms:  parsed[:sub_rooms],  # array of sub room names
+      super_room: parsed[:super_room], # name string
+      events:     fetch_events_for_calendar(cal.id, service),
+      last_fetched: Time.now
     }
+
     setup_watch_for_calendar(cal.id, service)
   end
   puts "Finished loading room calendars."
 end
 
+# -------------------------------------------------
+# Set up push notification watch for a calendar
+# -------------------------------------------------
 def setup_watch_for_calendar(calendar_id, service = nil)
   service ||= begin
     s = Google::Apis::CalendarV3::CalendarService.new
@@ -154,14 +223,19 @@ def setup_watch_for_calendar(calendar_id, service = nil)
   end
 end
 
+# -------------------------------------------------
+# Refresh watch channels for all known room calendars
+# -------------------------------------------------
 def refresh_room_calendars
   puts 'Refreshing room calendars...'
   credentials = load_organizer_credentials
-  service = Google::Apis::CalendarV3::CalendarService.new
+  service     = Google::Apis::CalendarV3::CalendarService.new
   service.authorization = credentials
 
   calendar_list = service.list_calendar_lists
-  room_calendars = calendar_list.items.select { |cal| cal.description&.include?('type:room') }
+  room_calendars = calendar_list.items.select do |cal|
+    cal.description.to_s.include?('type:room')
+  end
 
   room_calendars.each do |cal|
     setup_watch_for_calendar(cal.id, service)

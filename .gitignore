@@ -4,3 +4,5 @@ credentials.json
 users.db
 Gemfile.lock
 auto.git.push.sh
+concat_files.sh
+result.txt
