@@ -36,6 +36,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   const eventGuestsInput       = document.getElementById('eventGuestsInput');
 
   /* ------------------------------------------------------------------
+     TOAST REFERENCES & FUNCTIONS
+  ------------------------------------------------------------------ */
+  const toastEl       = document.getElementById('myToast');
+  const toastTitleEl  = document.getElementById('toastTitle');
+  const toastBodyEl   = document.getElementById('toastBody');
+  const bsToast       = new bootstrap.Toast(toastEl, { delay: 3000 });
+
+  function showToast(title, body) {
+    toastTitleEl.textContent = title;
+    toastBodyEl.textContent  = body;
+    bsToast.show();
+  }
+
+  /* ------------------------------------------------------------------
      2) State Variables
   ------------------------------------------------------------------ */
   let currentUserEmail   = null;
@@ -45,23 +59,27 @@ document.addEventListener('DOMContentLoaded', async () => {
   const lastKnownVersions= {}; // { calendarId: number }
   const roomMap          = {};
 
-  // For user-list
   let prefetchedUsers    = [];  // Array of { email, name }
-  let lastKnownUserVersion = 1;
+  let lastKnownUserVersion = 1; 
 
   // For chips-based participants
   let inviteChips        = [];
 
   /* ------------------------------------------------------------------
-     3) Helper Functions
+     3) Helper Functions (showError, hideError, spinner, fetchJSON, etc.)
   ------------------------------------------------------------------ */
   function showError(msg) {
+    // Show in alert div:
     errorAlert.textContent = msg;
     errorAlert.classList.remove('d-none');
+
+    // Show in toast as well:
+    showToast("Error", msg);
   }
   function hideError() {
     errorAlert.classList.add('d-none');
   }
+
   function showSpinner() {
     loadingSpinner.classList.remove('d-none');
   }
@@ -87,8 +105,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     return `${year}-${month}-${day}T${hour}:${minute}`;
   }
 
+  function isPast(dateObj) {
+    return dateObj < new Date();
+  }
+
   // FRONTEND Overlap Check:
-  // This checks *all* events, including linked ones, as per your request.
+  // The frontend checks *all* events, including linked ones, as per your requirement.
   function selectionOverlapsExisting(selectInfo, calendarObj) {
     const existingEvents = calendarObj.getEvents();
     for (const ev of existingEvents) {
@@ -99,7 +121,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return false;
   }
 
-  // CRUD helpers
+  // CRUD helper functions for events
   async function createEvent({ calendarId, title, start, end, participants }) {
     return fetchJSON('/api/create_event', {
       method: 'POST',
@@ -151,8 +173,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   /* ------------------------------------------------------------------
-     5) Fetch user list + rooms
+     5) Fetch users + rooms
   ------------------------------------------------------------------ */
+  // 1) Load user list
   try {
     const data = await fetchJSON('/api/all_users');
     prefetchedUsers = data.users || [];
@@ -160,6 +183,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.error('Failed to load user list:', err);
   }
 
+  // 2) Fetch rooms
   let rooms = [];
   try {
     const data = await fetchJSON('/api/rooms');
@@ -175,7 +199,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  // Populate a dropdown or list
+  // Populate dropdown
   rooms.forEach((room, index) => {
     const li = document.createElement('li');
     const link = document.createElement('a');
@@ -185,19 +209,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     link.addEventListener('click', () => {
       selectRoom(room.id);
     });
-
     li.appendChild(link);
     roomDropdownMenu.appendChild(li);
-    roomMap[room.id] = room.summary;
 
-    // auto-select the first room
+    roomMap[room.id] = room.summary;
     if (index === 0) {
       selectRoom(room.id);
     }
   });
 
   /* ------------------------------------------------------------------
-     6) Select a room => show the calendar
+     6) Select Room => init Calendar
   ------------------------------------------------------------------ */
   function selectRoom(roomId) {
     if (currentRoomId === roomId) return;
@@ -241,16 +263,14 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       },
       dateClick: (info) => {
-        // user cannot create an event in the past
-        if (info.date < new Date()) return;
+        if (isPast(info.date)) return;
         const startTime = info.date;
         const endTime   = new Date(startTime.getTime() + 30*60*1000);
         openEventModal({ calendarId, start: startTime, end: endTime });
       },
       selectable: true,
-      // IMPORTANT: The frontend checks *all* events for overlaps (including linked).
       selectAllow: (selectInfo) => {
-        if (selectInfo.start < new Date()) return false; // no past
+        if (isPast(selectInfo.start)) return false;
         if (selectionOverlapsExisting(selectInfo, calendar)) return false;
         return true;
       },
@@ -271,7 +291,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   /* ------------------------------------------------------------------
-     7) View Existing Event
+     7) View Event Modal
   ------------------------------------------------------------------ */
   let currentEventId = null;
 
@@ -300,7 +320,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const isLinked = (event.extendedProps?.is_linked === true || event.extendedProps?.is_linked === 'true');
 
-    // If it is a linked event => no edit/delete. Otherwise, check if user is organizer or attendee.
     let canEditOrDelete = true;
     if (isLinked) {
       canEditOrDelete = false;
@@ -339,8 +358,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       try {
         await deleteEvent({ calendarId, id: event.id });
         const fcEvent = calendars[calendarId]?.getEventById(event.id);
-        if (fcEvent) fcEvent.remove();
+        if (fcEvent) {
+          fcEvent.remove();
+        }
         viewEventModal.hide();
+        showToast("Deleted", "Event was successfully deleted.");
       } catch (err) {
         console.error(err);
         showError('Failed to delete event.');
@@ -349,7 +371,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   /* ------------------------------------------------------------------
-     8) Create/Edit Modal => Chips for participants
+     8) Create/Edit Modal => Chips
   ------------------------------------------------------------------ */
   function openEventModal({ calendarId, eventId, title, start, end, attendees }) {
     hideError();
@@ -369,10 +391,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       eventEndField.value = '';
     }
 
-    // Clear old chips
     inviteChips = [];
     clearChipsUI();
-
     if (attendees && attendees.length > 0) {
       attendees.forEach((email) => {
         const userObj = prefetchedUsers.find(u => u.email === email);
@@ -388,7 +408,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       renderChipsUI();
     }
 
-    // If editing => disallow changing the time
+    // If editing => disable times
     if (eventId) {
       eventStartField.disabled = true;
       eventEndField.disabled   = true;
@@ -420,7 +440,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const participants = inviteChips.map(ch => ch.email);
 
-    // For new events, ensure the user doesn't pick an invalid time
     if (!eventId) {
       if (!startUTC || !endUTC) {
         showError('Missing start or end time.');
@@ -439,10 +458,26 @@ document.addEventListener('DOMContentLoaded', async () => {
     showSpinner();
     try {
       if (eventId) {
-        await updateEvent({ calendarId, eventId, title, start: startUTC, end: endUTC, participants });
+        await updateEvent({
+          calendarId,
+          eventId,
+          title,
+          start: startUTC,
+          end: endUTC,
+          participants
+        });
+        showToast("Updated", "Event was successfully updated.");
       } else {
-        await createEvent({ calendarId, title, start: startUTC, end: endUTC, participants });
+        await createEvent({
+          calendarId,
+          title,
+          start: startUTC,
+          end: endUTC,
+          participants
+        });
+        showToast("Created", "Event was successfully created.");
       }
+
       eventModal.hide();
       calendars[calendarId].refetchEvents();
     } catch (err) {
@@ -520,14 +555,14 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function resolveUserToken(token) {
     const lowerToken = token.toLowerCase();
-    // Check exact email in prefetchedUsers
-    let found = prefetchedUsers.find(u => {
-      return u.email && u.email.toLowerCase() === lowerToken;
-    });
+  
+    // Check email in prefetchedUsers
+    let found = prefetchedUsers.find(u => u.email && u.email.toLowerCase() === lowerToken);
     if (found) {
       const label = found.name ? `${found.name} <${found.email}>` : found.email;
       return { label, email: found.email };
     }
+  
     // Check name
     found = prefetchedUsers.find(u => {
       return u.name && u.name.toLowerCase() === lowerToken;
@@ -536,7 +571,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       const label = found.name ? `${found.name} <${found.email}>` : found.email;
       return { label, email: found.email };
     }
-    // Otherwise must be valid email
+  
+    // If not in user list => must be valid email
     if (isValidEmail(token)) {
       return { label: token, email: token };
     }
@@ -581,6 +617,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       };
       typeaheadDiv.appendChild(item);
     });
+
     chipsInput.parentNode.appendChild(typeaheadDiv);
   });
 

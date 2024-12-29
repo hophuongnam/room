@@ -312,8 +312,6 @@ end
 # -------------------------------------------------
 def events_overlap?(calendar_id, start_time_utc, end_time_utc, ignore_event_id = nil)
   # This method checks for overlap with other *original* events (excluding linked events).
-  # That ensures that normal events cannot overlap existing normal events,
-  # but we do NOT treat linked events as blocking.
   service = Google::Apis::CalendarV3::CalendarService.new
   service.authorization = load_organizer_credentials
 
@@ -330,9 +328,13 @@ def events_overlap?(calendar_id, start_time_utc, end_time_utc, ignore_event_id =
 
   events.items.any? do |ev|
     next false if ignore_event_id && ev.id == ignore_event_id
-    # If this event is a "linked event," skip it from normal overlap checks
-    priv = ev.extended_properties&.private
-    is_linked = priv&.[]('is_linked') == 'true'
+
+    # READ private from extended_properties
+    is_linked = false
+    if ev.extended_properties && ev.extended_properties.private
+      is_linked = (ev.extended_properties.private['is_linked'] == 'true')
+    end
+
     next false if is_linked
     true
   end
@@ -357,10 +359,7 @@ post '/api/create_event' do
   start_time_utc = Time.parse(start_time_str).utc
   end_time_utc   = Time.parse(end_time_str).utc
 
-  # Overlap check for the "original" event only (ignoring linked events).
-  # If it fails, we abort. The frontend has already done an overlap check
-  # with *all* events, but here on the backend we specifically exclude
-  # linked events from blocking.
+  # Overlap check for original event only
   if events_overlap?(calendar_id, start_time_utc, end_time_utc)
     halt 409, { error: 'Time slot overlaps an existing event' }.to_json
   end
@@ -369,26 +368,33 @@ post '/api/create_event' do
   service.authorization = load_organizer_credentials
 
   attendees_emails = (participants + [creator_email]).uniq.reject(&:empty?)
+
+  # Use Google::Apis::CalendarV3::Event::ExtendedProperties
+  extended_props = Google::Apis::CalendarV3::Event::ExtendedProperties.new(
+    private: {
+      'creator_email'        => creator_email,
+      'is_linked'            => 'false',
+      'original_calendar_id' => calendar_id,
+      'original_event_id'    => ''  # will fill in after creation
+    }
+  )
+
   event = Google::Apis::CalendarV3::Event.new(
     summary: title,
     start:   { date_time: start_time_utc.iso8601, time_zone: 'UTC' },
     end:     { date_time: end_time_utc.iso8601,   time_zone: 'UTC' },
     attendees: attendees_emails.map { |em| { email: em } },
-    extended_properties: {
-      private: {
-        creator_email:       creator_email,
-        is_linked:           'false',  # original event
-        original_calendar_id: calendar_id,  # points to itself
-        original_event_id:   ''  # will fill in after creation
-      }
-    }
+    extended_properties: extended_props
   )
 
   result = service.insert_event(calendar_id, event)
 
-  # Fill in original_event_id for the newly created event
+  # Fill in original_event_id after creation
   event_id = result.id
+  # We'll just reuse 'event' here:
   event.extended_properties.private['original_event_id'] = event_id
+
+  # Update event with the new original_event_id
   service.update_event(calendar_id, event_id, event)
 
   # Update local data
@@ -408,15 +414,15 @@ post '/api/create_event' do
   end
   $room_update_tracker[calendar_id] += 1
 
-  # If the room is super or sub, create the linked events without overlap checks
+  # Create linked events if needed
   create_linked_events_if_needed(
-    calendar_id, 
-    event_id, 
-    start_time_utc, 
-    end_time_utc, 
-    title, 
-    attendees_emails, 
-    creator_email, 
+    calendar_id,
+    event_id,
+    start_time_utc,
+    end_time_utc,
+    title,
+    attendees_emails,
+    creator_email,
     service
   )
 
@@ -437,32 +443,32 @@ end
 # -------------------------------------------------
 def create_linked_events_if_needed(original_cal_id, original_event_id, start_time, end_time, title, attendees, creator_email, service)
   room_data = $rooms_data[original_cal_id]
-  return unless room_data # safety
+  return unless room_data
 
   role = room_data[:role]
   case role
   when 'super'
-    # If super => create linked events in each sub room
+    # If super => create linked events in sub rooms
     sub_names = room_data[:sub_rooms] || []
     sub_names.each do |sub_name|
       sub_cal_id = find_calendar_id_by_summary(sub_name)
       next unless sub_cal_id
 
       create_linked_event(
-        original_cal_id, 
-        original_event_id, 
-        sub_cal_id, 
-        start_time, 
-        end_time, 
-        title, 
-        attendees, 
-        creator_email, 
+        original_cal_id,
+        original_event_id,
+        sub_cal_id,
+        start_time,
+        end_time,
+        title,
+        attendees,
+        creator_email,
         service
       )
     end
 
   when 'sub'
-    # If sub => create linked event in the super
+    # If sub => create linked event in super
     super_name = room_data[:super_room]
     if super_name && !super_name.empty?
       super_cal_id = find_calendar_id_by_summary(super_name)
@@ -486,22 +492,24 @@ def create_linked_events_if_needed(original_cal_id, original_event_id, start_tim
 end
 
 def create_linked_event(original_cal_id, original_event_id, linked_cal_id, start_time, end_time, title, attendees, creator_email, service)
-  # IMPORTANT: No overlap check for linked events
+  # No overlap check for linked events
+  link_props = Google::Apis::CalendarV3::Event::ExtendedProperties.new(
+    private: {
+      'creator_email'        => creator_email,
+      'is_linked'            => 'true',
+      'original_calendar_id' => original_cal_id,
+      'original_event_id'    => original_event_id
+    }
+  )
   event = Google::Apis::CalendarV3::Event.new(
     summary: title,
     start:   { date_time: start_time.iso8601, time_zone: 'UTC' },
     end:     { date_time: end_time.iso8601,   time_zone: 'UTC' },
     attendees: attendees.map { |em| { email: em } },
-    extended_properties: {
-      private: {
-        creator_email:       creator_email,
-        is_linked:           'true',
-        original_calendar_id: original_cal_id,
-        original_event_id:   original_event_id
-      }
-    }
+    extended_properties: link_props
   )
-  result = service.insert_event(linked_cal_id, event)
+  service.insert_event(linked_cal_id, event)
+
   # Refresh memory
   updated_events = fetch_events_for_calendar(linked_cal_id, service)
   if $rooms_data[linked_cal_id]
@@ -509,7 +517,6 @@ def create_linked_event(original_cal_id, original_event_id, linked_cal_id, start
     $rooms_data[linked_cal_id][:last_fetched] = Time.now
     $room_update_tracker[linked_cal_id] += 1
   end
-  result
 end
 
 def find_calendar_id_by_summary(summary_name)
@@ -538,29 +545,32 @@ put '/api/update_event' do
   service.authorization = load_organizer_credentials
 
   existing_event = service.get_event(calendar_id, event_id)
-  priv_props     = existing_event.extended_properties&.private || {}
-  is_linked      = (priv_props['is_linked'] == 'true')
 
-  # If event is linked => do NOT allow direct edit
+  # read private from extended_properties
+  priv_props = if existing_event.extended_properties&.private
+                 existing_event.extended_properties.private
+               else
+                 {}
+               end
+
+  is_linked     = (priv_props['is_linked'] == 'true')
+  creator_email = priv_props['creator_email']
+
   if is_linked
     halt 403, { error: 'Cannot edit a linked event directly. Edit the original event.' }.to_json
   end
 
-  all_attendees  = (existing_event.attendees || []).map(&:email)
-  creator_email  = priv_props['creator_email']
-
+  all_attendees = (existing_event.attendees || []).map(&:email)
   unless all_attendees.include?(user_email) || (creator_email == user_email)
     halt 403, { error: 'You do not have permission to update this event' }.to_json
   end
 
-  # We do NOT allow time changes in this endpoint, so we skip overlap checks entirely.
+  # We do NOT allow time changes in this endpoint
   updated_attendees_emails = (participants + [creator_email]).uniq.reject(&:empty?)
-  existing_event.summary   = title
-  existing_event.attendees = updated_attendees_emails.map { |em| { email: em } }
+  existing_event.summary    = title
+  existing_event.attendees  = updated_attendees_emails.map { |em| { email: em } }
 
   result = service.update_event(calendar_id, event_id, existing_event)
-
-  # Also update linked events (same summary, same attendees)
   sync_linked_events(calendar_id, event_id, title, updated_attendees_emails, service)
 
   updated_events = fetch_events_for_calendar(calendar_id, service)
@@ -583,13 +593,7 @@ put '/api/update_event' do
 end
 
 def sync_linked_events(original_cal_id, original_event_id, new_title, new_attendees, service)
-  # For each known calendar, if we find an event with
-  #   extended_properties.private.is_linked = 'true'
-  #   original_calendar_id == original_cal_id
-  #   original_event_id == original_event_id
-  # => update that event's summary and attendees.
   $rooms_data.keys.each do |cal_id|
-    # skip the original
     next if cal_id == original_cal_id
 
     events = service.list_events(
@@ -633,11 +637,16 @@ delete '/api/delete_event' do
   service.authorization = load_organizer_credentials
 
   event = service.get_event(calendar_id, event_id)
-  priv  = event.extended_properties&.private
-  is_linked = (priv&.[]('is_linked') == 'true')
-  creator_email = priv&.[]('creator_email')
 
-  # If event is linked => do NOT allow direct delete
+  priv = if event.extended_properties&.private
+           event.extended_properties.private
+         else
+           {}
+         end
+
+  is_linked     = (priv['is_linked'] == 'true')
+  creator_email = priv['creator_email']
+
   if is_linked
     halt 403, { error: 'Cannot delete a linked event directly. Delete the original event.' }.to_json
   end
@@ -664,7 +673,6 @@ delete '/api/delete_event' do
 end
 
 def delete_linked_events(original_cal_id, original_event_id, service)
-  # For each other calendar, remove events that are linked copies of the original
   $rooms_data.keys.each do |cal_id|
     next if cal_id == original_cal_id
     events = service.list_events(

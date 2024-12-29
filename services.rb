@@ -123,16 +123,14 @@ def fetch_events_for_calendar(calendar_id, service = nil)
     time_min: time_min_utc
   )
 
-  # figure out this room's role data
   this_room_data = $rooms_data[calendar_id]
-  this_role      = this_room_data[:role] if this_room_data
-  this_role    ||= 'normal'  # fallback
+  this_role      = this_room_data ? this_room_data[:role] : 'normal'
 
   result.items.map do |event|
-    priv = event.extended_properties&.private
-    is_linked  = priv&.[]('is_linked') == 'true'
-    orig_cal   = priv&.[]('original_calendar_id')
-    orig_ev_id = priv&.[]('original_event_id')
+    priv      = event.extended_properties&.private
+    is_linked = (priv && priv['is_linked'] == 'true')
+    orig_cal  = priv && priv['original_calendar_id']
+    orig_ev_id= priv && priv['original_event_id']
 
     # If event's original_calendar_id != this calendar => it's a linked event
     border_color = determine_linked_event_color(calendar_id, orig_cal)
@@ -154,10 +152,8 @@ def fetch_events_for_calendar(calendar_id, service = nil)
   end
 end
 
-# A simple function to choose a color for linked events
 def determine_linked_event_color(current_calendar_id, original_calendar_id)
   return '' if original_calendar_id.nil? || original_calendar_id == current_calendar_id
-  # This means it's a linked event => mark with a special color
   '#ff0000'
 end
 
@@ -186,8 +182,8 @@ def load_and_watch_all_rooms
         description: cal.description
       },
       role:       parsed[:role],
-      sub_rooms:  parsed[:sub_rooms],  # array of sub room names
-      super_room: parsed[:super_room], # name string
+      sub_rooms:  parsed[:sub_rooms],
+      super_room: parsed[:super_room],
       events:     fetch_events_for_calendar(cal.id, service),
       last_fetched: Time.now
     }
