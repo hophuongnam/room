@@ -22,7 +22,7 @@
   <!-- Single-Line Navbar with Dropdown -->
   <nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top shadow" id="mainNavbar">
     <div class="container-fluid">
-      <a class="navbar-brand" href="#">Meeting Room Reservation v0.2</a>
+      <a class="navbar-brand" href="#">Meeting Room Reservation v0.3.1</a>
 
       <!-- Navbar Toggler (for mobile) -->
       <button 
@@ -56,6 +56,9 @@
             </ul>
           </li>
         </ul>
+
+        <!-- NEW: Centered span for Room Title (mx-auto to center) -->
+        <span id="selectedRoomName" class="mx-auto text-white"></span>
 
         <!-- Login/Logout -->
         <div class="d-flex">
@@ -106,8 +109,14 @@
         <div class="modal-body">
           <p><strong>Start:</strong> <span id="viewEventStart"></span></p>
           <p><strong>End:</strong> <span id="viewEventEnd"></span></p>
-          <p><strong>Organizer:</strong> <span id="viewEventOrganizer"></span></p>
-          <p><strong>Attendees:</strong> <span id="viewEventAttendees"></span></p>
+
+          <!-- Organizer as Chips -->
+          <p><strong>Organizer:</strong></p>
+          <div id="viewEventOrganizerChips" class="chips-container mb-3"></div>
+          
+          <!-- Attendees as Chips -->
+          <p><strong>Attendees:</strong></p>
+          <div id="viewEventAttendeesChips" class="chips-container mb-3"></div>
         </div>
         
         <div class="modal-footer">

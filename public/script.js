@@ -11,6 +11,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   const roomDropdown     = document.getElementById('roomDropdown');
   const roomDropdownMenu = document.getElementById('roomDropdownMenu');
 
+  // Span to show selected room name in the navbar
+  const selectedRoomName = document.getElementById('selectedRoomName');
+
   // Calendar Container
   const calendarContainer = document.getElementById('calendarContainer');
 
@@ -19,10 +22,10 @@ document.addEventListener('DOMContentLoaded', async () => {
   const viewEventTitle         = document.getElementById('viewEventTitle');
   const viewEventStart         = document.getElementById('viewEventStart');
   const viewEventEnd           = document.getElementById('viewEventEnd');
-  const viewEventOrganizer     = document.getElementById('viewEventOrganizer');
-  const viewEventAttendees     = document.getElementById('viewEventAttendees');
   const viewEventEditBtn       = document.getElementById('viewEventEditBtn');
   const viewEventDeleteBtn     = document.getElementById('viewEventDeleteBtn');
+  const viewEventOrganizerChips= document.getElementById('viewEventOrganizerChips');
+  const viewEventAttendeesChips= document.getElementById('viewEventAttendeesChips');
 
   // Create/Edit Event Modal
   const eventModal             = new bootstrap.Modal(document.getElementById('eventModal'));
@@ -69,11 +72,8 @@ document.addEventListener('DOMContentLoaded', async () => {
      3) Helper Functions (showError, hideError, spinner, fetchJSON, etc.)
   ------------------------------------------------------------------ */
   function showError(msg) {
-    // Show in alert div:
     errorAlert.textContent = msg;
     errorAlert.classList.remove('d-none');
-
-    // Show in toast as well:
     showToast("Error", msg);
   }
   function hideError() {
@@ -110,7 +110,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // FRONTEND Overlap Check:
-  // The frontend checks *all* events, including linked ones, as per your requirement.
   function selectionOverlapsExisting(selectInfo, calendarObj) {
     const existingEvents = calendarObj.getEvents();
     for (const ev of existingEvents) {
@@ -121,7 +120,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return false;
   }
 
-  // CRUD helper functions for events
+  // CRUD helper functions
   async function createEvent({ calendarId, title, start, end, participants }) {
     return fetchJSON('/api/create_event', {
       method: 'POST',
@@ -200,7 +199,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // Populate dropdown
-  rooms.forEach((room, index) => {
+  rooms.forEach((room) => {
     const li = document.createElement('li');
     const link = document.createElement('a');
     link.className = 'dropdown-item';
@@ -213,10 +212,18 @@ document.addEventListener('DOMContentLoaded', async () => {
     roomDropdownMenu.appendChild(li);
 
     roomMap[room.id] = room.summary;
-    if (index === 0) {
-      selectRoom(room.id);
-    }
   });
+
+  // ------------------------------------------------------------------
+  // Check if there's a previously saved room in localStorage
+  // ------------------------------------------------------------------
+  // <-- ADDED FOR PERSISTING ROOM
+  const savedRoomId = localStorage.getItem('selectedRoomId'); // <-- ADDED
+  if (savedRoomId && rooms.some(r => r.id === savedRoomId)) {
+    selectRoom(savedRoomId); // <-- ADDED
+  } else {
+    selectRoom(rooms[0].id); // original default
+  }
 
   /* ------------------------------------------------------------------
      6) Select Room => init Calendar
@@ -224,9 +231,16 @@ document.addEventListener('DOMContentLoaded', async () => {
   function selectRoom(roomId) {
     if (currentRoomId === roomId) return;
     currentRoomId = roomId;
+
+    // <-- ADDED FOR PERSISTING ROOM
+    localStorage.setItem('selectedRoomId', roomId); // remember the user’s chosen room
+
     hideError();
     showSpinner();
+
     roomDropdown.textContent = roomMap[roomId];
+    selectedRoomName.textContent = roomMap[roomId];
+
     initCalendar(roomId);
   }
 
@@ -295,11 +309,22 @@ document.addEventListener('DOMContentLoaded', async () => {
   ------------------------------------------------------------------ */
   let currentEventId = null;
 
+  function renderReadOnlyChips(containerEl, items) {
+    containerEl.innerHTML = '';
+    items.forEach((item) => {
+      const chip = document.createElement('span');
+      chip.className = 'chip badge bg-secondary me-1'; 
+      chip.textContent = item;
+      containerEl.appendChild(chip);
+    });
+  }
+
   function openViewEventModal(event, calendarId) {
     hideError();
     currentEventId = event.id;
 
     viewEventTitle.textContent = event.title || 'Untitled';
+
     const startTime = event.start ? new Date(event.start) : null;
     const endTime   = event.end   ? new Date(event.end)   : null;
     const formatOptions = { 
@@ -313,18 +338,29 @@ document.addEventListener('DOMContentLoaded', async () => {
       ? endTime.toLocaleString(undefined, formatOptions)
       : 'N/A';
 
-    const organizer = event.extendedProps?.organizer || '';
-    viewEventOrganizer.textContent = organizer;
-    const attendees = event.extendedProps?.attendees || event.attendees || [];
-    viewEventAttendees.textContent = Array.isArray(attendees) ? attendees.join(', ') : '';
+    const rawOrganizer = event.extendedProps?.organizer || '';
+    const orgObj = prefetchedUsers.find(u => u.email && u.email.toLowerCase() === rawOrganizer.toLowerCase());
+    const organizerLabel = orgObj
+      ? `${orgObj.name} <${orgObj.email}>`
+      : rawOrganizer;
+
+    const rawAttendees = event.extendedProps?.attendees || event.attendees || [];
+    const attendeeLabels = rawAttendees.map(addr => {
+      const found = prefetchedUsers.find(u => u.email && u.email.toLowerCase() === addr.toLowerCase());
+      return found
+        ? `${found.name} <${found.email}>`
+        : addr;
+    });
+
+    renderReadOnlyChips(viewEventOrganizerChips, [organizerLabel]);
+    renderReadOnlyChips(viewEventAttendeesChips, attendeeLabels);
 
     const isLinked = (event.extendedProps?.is_linked === true || event.extendedProps?.is_linked === 'true');
-
     let canEditOrDelete = true;
     if (isLinked) {
       canEditOrDelete = false;
     } else {
-      if (!attendees.includes(currentUserEmail) && organizer !== currentUserEmail) {
+      if (!rawAttendees.includes(currentUserEmail) && rawOrganizer !== currentUserEmail) {
         canEditOrDelete = false;
       }
     }
@@ -332,9 +368,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     viewEventEditBtn.style.display   = canEditOrDelete ? 'inline-block' : 'none';
     viewEventDeleteBtn.style.display = canEditOrDelete ? 'inline-block' : 'none';
 
-    viewEventModal.show();
-
-    // Edit
     viewEventEditBtn.onclick = () => {
       if (canEditOrDelete) {
         openEventModal({
@@ -343,13 +376,12 @@ document.addEventListener('DOMContentLoaded', async () => {
           title: event.title,
           start: event.start,
           end: event.end,
-          attendees
+          attendees: rawAttendees
         });
       }
       viewEventModal.hide();
     };
 
-    // Delete
     viewEventDeleteBtn.onclick = async () => {
       if (!canEditOrDelete) return;
       const confirmDelete = confirm('Are you sure you want to delete this event?');
@@ -368,6 +400,8 @@ document.addEventListener('DOMContentLoaded', async () => {
         showError('Failed to delete event.');
       }
     };
+
+    viewEventModal.show();
   }
 
   /* ------------------------------------------------------------------
@@ -408,7 +442,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       renderChipsUI();
     }
 
-    // If editing => disable times
     if (eventId) {
       eventStartField.disabled = true;
       eventEndField.disabled   = true;
@@ -488,7 +521,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Chips UI
+  // Chips UI for create/edit
   const chipsContainer = eventGuestsContainer;
   const chipsInput     = eventGuestsInput;
 

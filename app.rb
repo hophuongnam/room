@@ -301,7 +301,8 @@ get '/api/events' do
         title: event.summary,
         start: event.start.date_time || event.start.date,
         end:   event.end.date_time   || event.end.date,
-        attendees: event.attendees&.map(&:email) || []
+        attendees: event.attendees&.map(&:email) || [],
+        location:  event.location
       }
     end
   }.to_json
@@ -369,7 +370,10 @@ post '/api/create_event' do
 
   attendees_emails = (participants + [creator_email]).uniq.reject(&:empty?)
 
-  # Use Google::Apis::CalendarV3::Event::ExtendedProperties
+  # The room's name for the main event
+  calendar_name = $rooms_data[calendar_id][:calendar_info][:summary] rescue 'Unknown Room'
+
+  # Use ExtendedProperties
   extended_props = Google::Apis::CalendarV3::Event::ExtendedProperties.new(
     private: {
       'creator_email'        => creator_email,
@@ -380,9 +384,10 @@ post '/api/create_event' do
   )
 
   event = Google::Apis::CalendarV3::Event.new(
-    summary: title,
-    start:   { date_time: start_time_utc.iso8601, time_zone: 'UTC' },
-    end:     { date_time: end_time_utc.iso8601,   time_zone: 'UTC' },
+    summary:  title,
+    location: calendar_name,  # <-- store the room name in location
+    start:    { date_time: start_time_utc.iso8601, time_zone: 'UTC' },
+    end:      { date_time: end_time_utc.iso8601,   time_zone: 'UTC' },
     attendees: attendees_emails.map { |em| { email: em } },
     extended_properties: extended_props
   )
@@ -391,7 +396,6 @@ post '/api/create_event' do
 
   # Fill in original_event_id after creation
   event_id = result.id
-  # We'll just reuse 'event' here:
   event.extended_properties.private['original_event_id'] = event_id
 
   # Update event with the new original_event_id
@@ -433,6 +437,7 @@ post '/api/create_event' do
     start:     result.start.date_time || result.start.date,
     end:       result.end.date_time   || result.end.date,
     attendees: result.attendees&.map(&:email) || [],
+    location:  result.location,
     organizer: creator_email,
     status:    'success'
   }.to_json
@@ -492,7 +497,9 @@ def create_linked_events_if_needed(original_cal_id, original_event_id, start_tim
 end
 
 def create_linked_event(original_cal_id, original_event_id, linked_cal_id, start_time, end_time, title, attendees, creator_email, service)
-  # No overlap check for linked events
+  # We'll store location as the linked room's name
+  linked_name = $rooms_data[linked_cal_id][:calendar_info][:summary] rescue 'Linked Room'
+
   link_props = Google::Apis::CalendarV3::Event::ExtendedProperties.new(
     private: {
       'creator_email'        => creator_email,
@@ -502,9 +509,10 @@ def create_linked_event(original_cal_id, original_event_id, linked_cal_id, start
     }
   )
   event = Google::Apis::CalendarV3::Event.new(
-    summary: title,
-    start:   { date_time: start_time.iso8601, time_zone: 'UTC' },
-    end:     { date_time: end_time.iso8601,   time_zone: 'UTC' },
+    summary:  title,
+    location: linked_name,
+    start:    { date_time: start_time.iso8601, time_zone: 'UTC' },
+    end:      { date_time: end_time.iso8601,   time_zone: 'UTC' },
     attendees: attendees.map { |em| { email: em } },
     extended_properties: link_props
   )
@@ -546,7 +554,6 @@ put '/api/update_event' do
 
   existing_event = service.get_event(calendar_id, event_id)
 
-  # read private from extended_properties
   priv_props = if existing_event.extended_properties&.private
                  existing_event.extended_properties.private
                else
@@ -570,8 +577,12 @@ put '/api/update_event' do
   existing_event.summary    = title
   existing_event.attendees  = updated_attendees_emails.map { |em| { email: em } }
 
+  # Keep the location updated as well
+  new_location = $rooms_data[calendar_id][:calendar_info][:summary] rescue 'Updated Room'
+  existing_event.location = new_location
+
   result = service.update_event(calendar_id, event_id, existing_event)
-  sync_linked_events(calendar_id, event_id, title, updated_attendees_emails, service)
+  sync_linked_events(calendar_id, event_id, title, updated_attendees_emails, new_location, service)
 
   updated_events = fetch_events_for_calendar(calendar_id, service)
   if $rooms_data[calendar_id]
@@ -587,12 +598,13 @@ put '/api/update_event' do
     start:     result.start.date_time || result.start.date,
     end:       result.end.date_time   || result.end.date,
     attendees: result.attendees&.map(&:email) || [],
+    location:  result.location,
     organizer: creator_email,
     status:    'success'
   }.to_json
 end
 
-def sync_linked_events(original_cal_id, original_event_id, new_title, new_attendees, service)
+def sync_linked_events(original_cal_id, original_event_id, new_title, new_attendees, new_location, service)
   $rooms_data.keys.each do |cal_id|
     next if cal_id == original_cal_id
 
@@ -611,6 +623,8 @@ def sync_linked_events(original_cal_id, original_event_id, new_title, new_attend
 
       ev.summary   = new_title
       ev.attendees = new_attendees.map { |em| { email: em } }
+      ev.location  = $rooms_data[cal_id][:calendar_info][:summary] rescue new_location
+
       service.update_event(cal_id, ev.id, ev)
 
       updated_sub_events = fetch_events_for_calendar(cal_id, service)

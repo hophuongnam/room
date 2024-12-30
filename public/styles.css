@@ -86,4 +86,13 @@
    color: #fff;
  }
  
- 
+#viewEventOrganizerChips.chips-container,
+#viewEventAttendeesChips.chips-container {
+  border: none; 
+  padding: 0; 
+  min-height: 0;
+}
+
+.text-white {
+  font-size: x-large
+}
