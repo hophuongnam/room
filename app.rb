@@ -284,7 +284,6 @@ get '/api/rooms' do
   { rooms: sorted }.to_json
 end
 
-# Fetch events directly from Google (optional)
 get '/api/events' do
   content_type :json
   calendar_id = params['calendarId']
@@ -330,7 +329,6 @@ def events_overlap?(calendar_id, start_time_utc, end_time_utc, ignore_event_id =
   events.items.any? do |ev|
     next false if ignore_event_id && ev.id == ignore_event_id
 
-    # READ private from extended_properties
     is_linked = false
     if ev.extended_properties && ev.extended_properties.private
       is_linked = (ev.extended_properties.private['is_linked'] == 'true')
@@ -373,7 +371,6 @@ post '/api/create_event' do
   # The room's name for the main event
   calendar_name = $rooms_data[calendar_id][:calendar_info][:summary] rescue 'Unknown Room'
 
-  # Use ExtendedProperties
   extended_props = Google::Apis::CalendarV3::Event::ExtendedProperties.new(
     private: {
       'creator_email'        => creator_email,
@@ -385,7 +382,7 @@ post '/api/create_event' do
 
   event = Google::Apis::CalendarV3::Event.new(
     summary:  title,
-    location: calendar_name,  # <-- store the room name in location
+    location: calendar_name,
     start:    { date_time: start_time_utc.iso8601, time_zone: 'UTC' },
     end:      { date_time: end_time_utc.iso8601,   time_zone: 'UTC' },
     attendees: attendees_emails.map { |em| { email: em } },
@@ -443,9 +440,6 @@ post '/api/create_event' do
   }.to_json
 end
 
-# -------------------------------------------------
-# Helper: create linked events if room is super or sub
-# -------------------------------------------------
 def create_linked_events_if_needed(original_cal_id, original_event_id, start_time, end_time, title, attendees, creator_email, service)
   room_data = $rooms_data[original_cal_id]
   return unless room_data
@@ -497,7 +491,6 @@ def create_linked_events_if_needed(original_cal_id, original_event_id, start_tim
 end
 
 def create_linked_event(original_cal_id, original_event_id, linked_cal_id, start_time, end_time, title, attendees, creator_email, service)
-  # We'll store location as the linked room's name
   linked_name = $rooms_data[linked_cal_id][:calendar_info][:summary] rescue 'Linked Room'
 
   link_props = Google::Apis::CalendarV3::Event::ExtendedProperties.new(

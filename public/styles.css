@@ -2,97 +2,97 @@
    Theme Variables
 ------------------------ */
 :root {
-   --primary-color: #0d6efd;       /* matches Bootstrap .bg-primary */
-   --secondary-color: #6c757d;
-   --danger-color: #dc3545;
-   --background-color: #f8f9fa;
-   --box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
-   --border-radius: 8px;
-   --pills-bg-color: #ffffff;  
- }
- 
- /* ------------------------
-    Global Body
- ------------------------ */
- body {
-   font-family: 'Helvetica Neue', Arial, sans-serif;
-   margin: 0;
-   padding: 0;
-   background-color: var(--background-color);
- }
- 
- /* 
-    Single fixed-top navbar => ~80px top margin 
-    so content doesn't get hidden behind it.
- */
- .content-below-navbar {
-   margin-top: 80px; /* adjust as needed */
-   padding: 20px;
- }
- 
- /* ------------------------
-    Error Alert
- ------------------------ */
- .alert {
-   margin-bottom: 20px;
- }
- 
- /* ------------------------
-    Spinner
- ------------------------ */
- #loadingSpinner {
-   position: absolute;
-   top: 50%;
-   left: 50%;
-   transform: translate(-50%, -50%);
- }
- /* By default hidden with .d-none */
- 
- /* ------------------------
-    FullCalendar
- ------------------------ */
- .fc-event:hover {
-   background-color: var(--primary-color) !important;
-   color: #fff !important;
-   cursor: pointer;
- }
+  --primary-color: #0d6efd;       /* matches Bootstrap .bg-primary */
+  --secondary-color: #6c757d;
+  --danger-color: #dc3545;
+  --background-color: #f8f9fa;
+  --box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+  --border-radius: 8px;
+  --pills-bg-color: #ffffff;  
+}
+
+/* ------------------------
+   Global Body
+------------------------ */
+body {
+  font-family: 'Helvetica Neue', Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  background-color: var(--background-color);
+}
+
+/* 
+   Single fixed-top navbar => ~80px top margin 
+   so content doesn't get hidden behind it.
+*/
+.content-below-navbar {
+  margin-top: 80px; /* adjust as needed */
+  padding: 20px;
+}
+
+/* ------------------------
+   Error Alert
+------------------------ */
+.alert {
+  margin-bottom: 20px;
+}
+
+/* ------------------------
+   Spinner
+------------------------ */
+#loadingSpinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+}
+/* By default hidden with .d-none */
+
+/* ------------------------
+   FullCalendar
+------------------------ */
+.fc-event:hover {
+  background-color: var(--primary-color) !important;
+  color: #fff !important;
+  cursor: pointer;
+}
 
 /* For chips UI in the invite container */
 .chips-container {
-   display: flex;
-   align-items: center;
-   flex-wrap: wrap;
-   gap: 4px;
-   min-height: 40px;
-   border: 1px solid #ccc;
-   padding: 4px;
-   border-radius: 4px;
-   position: relative;
- }
- 
- .chips-input {
-   border: none;
-   outline: none;
-   flex: 1;
-   min-width: 150px;
- }
- 
- .chip {
-   display: inline-flex;
-   align-items: center;
-   padding: 4px 8px;
-   border-radius: 16px;
-   background-color: var(--secondary-color);
-   color: #fff;
- }
- 
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+  min-height: 40px;
+  border: 1px solid #ccc;
+  padding: 4px;
+  border-radius: 4px;
+  position: relative;
+}
+
+.chips-input {
+  border: none;
+  outline: none;
+  flex: 1;
+  min-width: 150px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 16px;
+  background-color: var(--secondary-color);
+  color: #fff;
+}
+
 #viewEventOrganizerChips.chips-container,
 #viewEventAttendeesChips.chips-container {
-  border: none; 
-  padding: 0; 
-  min-height: 0;
+ border: none; 
+ padding: 0; 
+ min-height: 0;
 }
 
 .text-white {
-  font-size: x-large
+ font-size: x-large
 }

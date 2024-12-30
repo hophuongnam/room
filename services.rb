@@ -104,8 +104,7 @@ def parse_room_role_and_links(cal)
 end
 
 # -------------------------------------------------
-# Fetch events (7 days in the past onward),
-# tagging them with colors / extended props for linked events
+# Fetch events (7 days in the past onward)
 # -------------------------------------------------
 def fetch_events_for_calendar(calendar_id, service = nil)
   service ||= begin
@@ -132,7 +131,6 @@ def fetch_events_for_calendar(calendar_id, service = nil)
     orig_cal  = priv && priv['original_calendar_id']
     orig_ev_id= priv && priv['original_event_id']
 
-    # If event's original_calendar_id != this calendar => it's a linked event
     border_color = determine_linked_event_color(calendar_id, orig_cal)
 
     {

@@ -69,7 +69,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   let inviteChips        = [];
 
   /* ------------------------------------------------------------------
-     3) Helper Functions (showError, hideError, spinner, fetchJSON, etc.)
+     3) Helper Functions
   ------------------------------------------------------------------ */
   function showError(msg) {
     errorAlert.textContent = msg;
@@ -109,7 +109,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     return dateObj < new Date();
   }
 
-  // FRONTEND Overlap Check:
   function selectionOverlapsExisting(selectInfo, calendarObj) {
     const existingEvents = calendarObj.getEvents();
     for (const ev of existingEvents) {
@@ -144,7 +143,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   /* ------------------------------------------------------------------
-     4) Check if user is logged in
+     4) Login/Logout Buttons
+  ------------------------------------------------------------------ */
+  loginBtn.addEventListener('click', () => {
+    window.location.href = '/login';
+  });
+  logoutBtn.addEventListener('click', () => {
+    window.location.href = '/logout';
+  });
+
+  /* ------------------------------------------------------------------
+     5) Check if user is logged in
   ------------------------------------------------------------------ */
   try {
     const meRes = await fetch('/api/me');
@@ -164,15 +173,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   } else {
     logoutBtn.style.display = 'none';
     loginBtn.style.display  = 'inline-block';
-  }
-
-  // If not logged in, stop
-  if (!isLoggedIn) {
+    // If not logged in, we won't load the rooms or calendar
+    // (You can remove this return if you want to show rooms read-only)
     return;
   }
 
   /* ------------------------------------------------------------------
-     5) Fetch users + rooms
+     6) Fetch users + rooms
   ------------------------------------------------------------------ */
   // 1) Load user list
   try {
@@ -217,23 +224,21 @@ document.addEventListener('DOMContentLoaded', async () => {
   // ------------------------------------------------------------------
   // Check if there's a previously saved room in localStorage
   // ------------------------------------------------------------------
-  // <-- ADDED FOR PERSISTING ROOM
-  const savedRoomId = localStorage.getItem('selectedRoomId'); // <-- ADDED
+  const savedRoomId = localStorage.getItem('selectedRoomId');
   if (savedRoomId && rooms.some(r => r.id === savedRoomId)) {
-    selectRoom(savedRoomId); // <-- ADDED
+    selectRoom(savedRoomId);
   } else {
-    selectRoom(rooms[0].id); // original default
+    selectRoom(rooms[0].id);
   }
 
   /* ------------------------------------------------------------------
-     6) Select Room => init Calendar
+     7) Select Room => init Calendar
   ------------------------------------------------------------------ */
   function selectRoom(roomId) {
     if (currentRoomId === roomId) return;
     currentRoomId = roomId;
 
-    // <-- ADDED FOR PERSISTING ROOM
-    localStorage.setItem('selectedRoomId', roomId); // remember the user’s chosen room
+    localStorage.setItem('selectedRoomId', roomId);
 
     hideError();
     showSpinner();
@@ -305,7 +310,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   /* ------------------------------------------------------------------
-     7) View Event Modal
+     8) View Event Modal
   ------------------------------------------------------------------ */
   let currentEventId = null;
 
@@ -405,7 +410,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   /* ------------------------------------------------------------------
-     8) Create/Edit Modal => Chips
+     9) Create/Edit Modal => Chips
   ------------------------------------------------------------------ */
   function openEventModal({ calendarId, eventId, title, start, end, attendees }) {
     hideError();
@@ -655,7 +660,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   /* ------------------------------------------------------------------
-     9) Polling for Room & User Updates
+     10) Polling for Room & User Updates
   ------------------------------------------------------------------ */
   setInterval(checkRoomUpdates, 30000);
   setInterval(checkUserUpdates, 30000);
