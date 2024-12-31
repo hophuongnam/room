@@ -22,11 +22,12 @@ body {
 }
 
 /* 
-   Single fixed-top navbar => ~80px top margin 
-   so content doesn't get hidden behind it.
+   The main navbar is .fixed-top => we need top margin for content
+   Now we also have a second fixed bar (#roomsCheckboxBar).
+   So let's increase the margin.
 */
 .content-below-navbar {
-  margin-top: 80px; /* adjust as needed */
+  margin-top: 120px; /* was 80px; now ~120 to fit the 2 bars comfortably */
   padding: 20px;
 }
 
@@ -49,7 +50,7 @@ body {
 /* By default hidden with .d-none */
 
 /* ------------------------
-   FullCalendar
+   FullCalendar Hover
 ------------------------ */
 .fc-event:hover {
   background-color: var(--primary-color) !important;
@@ -57,7 +58,9 @@ body {
   cursor: pointer;
 }
 
-/* For chips UI in the invite container */
+/* ------------------------
+   Chips UI (Attendees)
+------------------------ */
 .chips-container {
   display: flex;
   align-items: center;
@@ -88,11 +91,75 @@ body {
 
 #viewEventOrganizerChips.chips-container,
 #viewEventAttendeesChips.chips-container {
- border: none; 
- padding: 0; 
- min-height: 0;
+  border: none; 
+  padding: 0; 
+  min-height: 0;
 }
 
 .text-white {
- font-size: x-large
+  font-size: x-large;
+}
+
+/* ------------------------
+   Rooms Checkbox Bar
+------------------------ */
+#roomsCheckboxBar {
+  position: fixed;
+  top: 60px; /* Just below the navbar (which is ~56-60px tall) */
+  left: 0;
+  width: 100%;
+  background-color: #f9f9f9;
+  z-index: 1030;
+  padding: 8px 16px;
+  display: flex;
+  align-items: center;
+  gap: 16px; /* space between checkboxes */
+  border-bottom: 1px solid #ccc;
+}
+
+/* Each checkbox wrapper */
+.room-checkbox {
+  display: inline-flex;
+  align-items: center;
+  position: relative;
+}
+
+/* Hide the native checkbox */
+.room-checkbox input[type="checkbox"] {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* The label becomes the "colored box" + text */
+.room-checkbox label {
+  --room-color: #ccc; /* default fallback */
+  background-color: var(--room-color);
+  color: #fff; /* text color */
+  padding: 0.3rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* We'll insert a checkmark when the box is checked */
+.room-checkbox label::before {
+  content: "";
+  display: inline-block;
+  width: 1em;
+  text-align: center;
+}
+
+.room-checkbox input[type="checkbox"]:checked + label::before {
+  content: "✓";
+  color: #fff;
+}
+
+/* On hover, slightly darken or lighten */
+.room-checkbox label:hover {
+  filter: brightness(0.95);
 }

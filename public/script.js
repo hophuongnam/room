@@ -7,15 +7,19 @@ document.addEventListener('DOMContentLoaded', async () => {
   const errorAlert       = document.getElementById('errorAlert');
   const loadingSpinner   = document.getElementById('loadingSpinner');
 
-  // Rooms dropdown
-  const roomDropdown     = document.getElementById('roomDropdown');
-  const roomDropdownMenu = document.getElementById('roomDropdownMenu');
+  // The new bar for checkboxes
+  const roomsCheckboxBar = document.getElementById('roomsCheckboxBar');
 
-  // Span to show selected room name in the navbar
+  // Single & Multi Calendar Containers
+  const singleCalendarContainer= document.getElementById('singleCalendarContainer');
+  const multiCalendarContainer = document.getElementById('multiCalendarContainer');
+
+  // Calendar DOM elements
+  const singleCalendarEl = document.getElementById('singleCalendar');
+  const multiCalendarEl  = document.getElementById('multiCalendar');
+
+  // For showing the selected room name in single view
   const selectedRoomName = document.getElementById('selectedRoomName');
-
-  // Calendar Container
-  const calendarContainer = document.getElementById('calendarContainer');
 
   // View Event Modal + elements
   const viewEventModal         = new bootstrap.Modal(document.getElementById('viewEventModal'));
@@ -38,39 +42,20 @@ document.addEventListener('DOMContentLoaded', async () => {
   const eventGuestsContainer   = document.getElementById('eventGuestsContainer');
   const eventGuestsInput       = document.getElementById('eventGuestsInput');
 
-  /* ------------------------------------------------------------------
-     TOAST REFERENCES & FUNCTIONS
-  ------------------------------------------------------------------ */
+  // Toast
   const toastEl       = document.getElementById('myToast');
   const toastTitleEl  = document.getElementById('toastTitle');
   const toastBodyEl   = document.getElementById('toastBody');
   const bsToast       = new bootstrap.Toast(toastEl, { delay: 3000 });
 
+  /* ------------------------------------------------------------------
+     2) Helper Functions
+  ------------------------------------------------------------------ */
   function showToast(title, body) {
     toastTitleEl.textContent = title;
     toastBodyEl.textContent  = body;
     bsToast.show();
   }
-
-  /* ------------------------------------------------------------------
-     2) State Variables
-  ------------------------------------------------------------------ */
-  let currentUserEmail   = null;
-  let isLoggedIn         = false;
-  let currentRoomId      = null;
-  const calendars        = {}; // { calendarId: FullCalendar instance }
-  const lastKnownVersions= {}; // { calendarId: number }
-  const roomMap          = {};
-
-  let prefetchedUsers    = [];  // Array of { email, name }
-  let lastKnownUserVersion = 1; 
-
-  // For chips-based participants
-  let inviteChips        = [];
-
-  /* ------------------------------------------------------------------
-     3) Helper Functions
-  ------------------------------------------------------------------ */
   function showError(msg) {
     errorAlert.textContent = msg;
     errorAlert.classList.remove('d-none');
@@ -79,7 +64,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   function hideError() {
     errorAlert.classList.add('d-none');
   }
-
   function showSpinner() {
     loadingSpinner.classList.remove('d-none');
   }
@@ -104,46 +88,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const minute = String(jsDate.getMinutes()).padStart(2, '0');
     return `${year}-${month}-${day}T${hour}:${minute}`;
   }
-
   function isPast(dateObj) {
     return dateObj < new Date();
   }
 
-  function selectionOverlapsExisting(selectInfo, calendarObj) {
-    const existingEvents = calendarObj.getEvents();
-    for (const ev of existingEvents) {
-      if (selectInfo.start < ev.end && selectInfo.end > ev.start) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  // CRUD helper functions
-  async function createEvent({ calendarId, title, start, end, participants }) {
-    return fetchJSON('/api/create_event', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ calendarId, title, start, end, participants }),
-    });
-  }
-  async function updateEvent({ calendarId, eventId, title, start, end, participants }) {
-    return fetchJSON('/api/update_event', {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ calendarId, eventId, title, start, end, participants }),
-    });
-  }
-  async function deleteEvent({ calendarId, id }) {
-    return fetchJSON('/api/delete_event', {
-      method: 'DELETE',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ calendarId, id }),
-    });
-  }
-
   /* ------------------------------------------------------------------
-     4) Login/Logout Buttons
+     3) Login/Logout
   ------------------------------------------------------------------ */
   loginBtn.addEventListener('click', () => {
     window.location.href = '/login';
@@ -153,8 +103,11 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   /* ------------------------------------------------------------------
-     5) Check if user is logged in
+     4) Check if user is logged in
   ------------------------------------------------------------------ */
+  let currentUserEmail   = null;
+  let isLoggedIn         = false;
+
   try {
     const meRes = await fetch('/api/me');
     if (meRes.status === 200) {
@@ -166,22 +119,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.error('Error checking /api/me:', err);
   }
 
-  // Show/hide Login or Logout
   if (isLoggedIn) {
     logoutBtn.style.display = 'inline-block';
     loginBtn.style.display  = 'none';
   } else {
     logoutBtn.style.display = 'none';
     loginBtn.style.display  = 'inline-block';
-    // If not logged in, we won't load the rooms or calendar
-    // (You can remove this return if you want to show rooms read-only)
+    roomsCheckboxBar.style.display = 'none';
+    // If not logged in, you might prevent further usage or show read-only
+    // For now, let's just return.
     return;
   }
 
   /* ------------------------------------------------------------------
-     6) Fetch users + rooms
+     5) Fetch user list (for the invite chips)
   ------------------------------------------------------------------ */
-  // 1) Load user list
+  let prefetchedUsers = [];
+  let lastKnownUserVersion = 1;
   try {
     const data = await fetchJSON('/api/all_users');
     prefetchedUsers = data.users || [];
@@ -189,7 +143,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     console.error('Failed to load user list:', err);
   }
 
-  // 2) Fetch rooms
+  /* ------------------------------------------------------------------
+     6) Fetch Rooms
+  ------------------------------------------------------------------ */
   let rooms = [];
   try {
     const data = await fetchJSON('/api/rooms');
@@ -205,112 +161,202 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
-  // Populate dropdown
-  rooms.forEach((room) => {
-    const li = document.createElement('li');
-    const link = document.createElement('a');
-    link.className = 'dropdown-item';
-    link.href = '#';
-    link.textContent = room.summary;
-    link.addEventListener('click', () => {
-      selectRoom(room.id);
-    });
-    li.appendChild(link);
-    roomDropdownMenu.appendChild(li);
-
-    roomMap[room.id] = room.summary;
-  });
-
-  // ------------------------------------------------------------------
-  // Check if there's a previously saved room in localStorage
-  // ------------------------------------------------------------------
-  const savedRoomId = localStorage.getItem('selectedRoomId');
-  if (savedRoomId && rooms.some(r => r.id === savedRoomId)) {
-    selectRoom(savedRoomId);
-  } else {
-    selectRoom(rooms[0].id);
-  }
-
   /* ------------------------------------------------------------------
-     7) Select Room => init Calendar
+     7) Build the new color-coded checkboxes
   ------------------------------------------------------------------ */
-  function selectRoom(roomId) {
-    if (currentRoomId === roomId) return;
-    currentRoomId = roomId;
-
-    localStorage.setItem('selectedRoomId', roomId);
-
-    hideError();
-    showSpinner();
-
-    roomDropdown.textContent = roomMap[roomId];
-    selectedRoomName.textContent = roomMap[roomId];
-
-    initCalendar(roomId);
+  // We'll store the user's selected rooms in localStorage
+  let storedSelections = [];
+  try {
+    const raw = localStorage.getItem('selectedRoomIds');
+    if (raw) {
+      storedSelections = JSON.parse(raw); // array of room IDs
+    }
+  } catch (err) {
+    console.error('Error parsing localStorage', err);
   }
 
-  function initCalendar(calendarId) {
-    if (calendars[calendarId]) {
-      calendars[calendarId].refetchEvents();
-      hideSpinner();
-      return;
+  // We'll pick colors from a palette
+  const colorPalette = [
+    '#F16B61', '#3B76C2', '#EC8670', '#009688',
+    '#AD1457', '#E67E22', '#8E44AD', '#757575'
+  ];
+
+  rooms.forEach((room, index) => {
+    const roomColor = colorPalette[index % colorPalette.length];
+
+    // parent container
+    const wrapper = document.createElement('div');
+    wrapper.classList.add('room-checkbox');
+
+    // checkbox
+    const chk = document.createElement('input');
+    chk.type = 'checkbox';
+    chk.id   = `roomChk_${room.id}`;
+    chk.value= room.id;
+
+    // if storedSelections includes this ID, check it
+    if (storedSelections.includes(room.id)) {
+      chk.checked = true;
     }
 
-    const calendar = new FullCalendar.Calendar(calendarContainer, {
-      timeZone: 'local',
-      height: 'auto',
-      nowIndicator: true,
-      slotMinTime: '08:00:00',
-      slotMaxTime: '18:00:00',
-      initialView: 'timeGridWeek',
-      firstDay: 1,
-      headerToolbar: {
-        left: 'prev,next today',
-        center: 'title',
-        right: 'dayGridMonth,timeGridWeek,timeGridDay',
-      },
-      events: async (info, successCallback, failureCallback) => {
-        try {
-          const data = await fetchJSON(`/api/room_data?calendarId=${encodeURIComponent(calendarId)}`);
-          successCallback(data.events || []);
-        } catch (err) {
-          console.error(err);
-          failureCallback(err);
-          showError('Failed to load events.');
-        } finally {
-          hideSpinner();
-        }
-      },
-      dateClick: (info) => {
-        if (isPast(info.date)) return;
-        const startTime = info.date;
-        const endTime   = new Date(startTime.getTime() + 30*60*1000);
-        openEventModal({ calendarId, start: startTime, end: endTime });
-      },
-      selectable: true,
-      selectAllow: (selectInfo) => {
-        if (isPast(selectInfo.start)) return false;
-        if (selectionOverlapsExisting(selectInfo, calendar)) return false;
-        return true;
-      },
-      select: (selectionInfo) => {
-        openEventModal({
-          calendarId,
-          start: selectionInfo.start,
-          end: selectionInfo.end
-        });
-      },
-      eventClick: (clickInfo) => {
-        openViewEventModal(clickInfo.event, calendarId);
-      }
-    });
+    // label
+    const lbl = document.createElement('label');
+    lbl.setAttribute('for', `roomChk_${room.id}`);
+    lbl.style.setProperty('--room-color', roomColor);
+    lbl.textContent = room.summary;
 
-    calendar.render();
-    calendars[calendarId] = calendar;
-  }
+    // events
+    chk.addEventListener('change', onRoomsCheckboxChange);
+
+    // assemble
+    wrapper.appendChild(chk);
+    wrapper.appendChild(lbl);
+    roomsCheckboxBar.appendChild(wrapper);
+  });
 
   /* ------------------------------------------------------------------
-     8) View Event Modal
+     8) Setup 2 FullCalendar Instances
+        SingleCalendar => for exactly 1 room
+        MultiCalendar  => for 2+ rooms
+  ------------------------------------------------------------------ */
+  let singleCalendar = new FullCalendar.Calendar(singleCalendarEl, {
+    timeZone: 'local',
+    height: 'auto',
+    nowIndicator: true,
+    slotMinTime: '08:00:00',
+    slotMaxTime: '18:00:00',
+    initialView: 'timeGridWeek',
+    firstDay: 1,
+    headerToolbar: {
+      left: 'prev,next today',
+      center: 'title',
+      right: 'dayGridMonth,timeGridWeek,timeGridDay',
+    },
+    events: async (info, successCallback, failureCallback) => {
+      if (!singleCalendar._roomId) {
+        successCallback([]);
+        return;
+      }
+      try {
+        const data = await fetchJSON(`/api/room_data?calendarId=${encodeURIComponent(singleCalendar._roomId)}`);
+        successCallback(data.events || []);
+      } catch (err) {
+        console.error(err);
+        failureCallback(err);
+        showError('Failed to load single-room events.');
+      }
+    },
+    dateClick: (info) => {
+      if (isPast(info.date)) return;
+      const startTime = info.date;
+      const endTime   = new Date(startTime.getTime() + 30*60*1000);
+      openEventModal({ 
+        calendarId: singleCalendar._roomId,
+        start: startTime, 
+        end:   endTime 
+      });
+    },
+    eventClick: (clickInfo) => {
+      openViewEventModal(clickInfo.event, singleCalendar._roomId);
+    }
+  });
+  singleCalendar.render();
+
+  let multiCalendar = new FullCalendar.Calendar(multiCalendarEl, {
+    timeZone: 'local',
+    height: 'auto',
+    nowIndicator: true,
+    slotMinTime: '08:00:00',
+    slotMaxTime: '18:00:00',
+    initialView: 'timeGridWeek',
+    firstDay: 1,
+    headerToolbar: {
+      left: 'prev,next today',
+      center: 'title',
+      right: 'dayGridMonth,timeGridWeek,timeGridDay',
+    },
+    // We'll dynamically add eventSources below
+    eventSources: [],
+    dateClick: (info) => {
+      // For multiCalendar, we can’t create an event on "all" rooms
+      // Usually you'd pick which room to create an event in
+      // For now, let's ignore dateClick or show an error
+      showToast("Multiple Rooms", "Select single-room view to create an event easily.");
+    },
+    eventClick: (clickInfo) => {
+      // We need to track which room this event belongs to
+      // We'll rely on event.extendedProps.original_calendar_id if set,
+      // or we can store the eventSource's roomId. We'll just pass that.
+      const source = clickInfo.event.source; // a FullCalendar EventSource
+      // If you need to track the calendarId from the event source:
+      const roomId = source?.url?.split('=')[1] || null;
+      openViewEventModal(clickInfo.event, decodeURIComponent(roomId) || null);
+    }
+  });
+  multiCalendar.render();
+
+  /* ------------------------------------------------------------------
+     9) Check/Uncheck => Single or Multi
+  ------------------------------------------------------------------ */
+  function onRoomsCheckboxChange() {
+    const checkboxes = roomsCheckboxBar.querySelectorAll('input[type="checkbox"]');
+    const selectedIds = Array.from(checkboxes)
+      .filter(ch => ch.checked)
+      .map(ch => ch.value);
+
+    // Save to localStorage
+    localStorage.setItem('selectedRoomIds', JSON.stringify(selectedIds));
+
+    if (selectedIds.length === 0) {
+      // default to the first room
+      selectedIds.push(rooms[0].id);
+      const firstChk = document.getElementById(`roomChk_${rooms[0].id}`);
+      if (firstChk) firstChk.checked = true;
+      localStorage.setItem('selectedRoomIds', JSON.stringify(selectedIds));
+    }
+
+    if (selectedIds.length === 1) {
+      // Single
+      singleCalendarContainer.style.display = 'block';
+      multiCalendarContainer.style.display  = 'none';
+
+      // show the name in the navbar
+      const theRoom = rooms.find(r => r.id === selectedIds[0]);
+      selectedRoomName.textContent = theRoom ? theRoom.summary : '';
+
+      // set the calendar's _roomId, refetch
+      singleCalendar._roomId = selectedIds[0];
+      singleCalendar.refetchEvents();
+
+    } else {
+      // Multi
+      singleCalendarContainer.style.display = 'none';
+      multiCalendarContainer.style.display  = 'block';
+
+      // Clear the navbar room name
+      selectedRoomName.textContent = '';
+
+      // remove existing sources
+      multiCalendar.removeAllEventSources();
+
+      // add each selected room as an event source
+      selectedIds.forEach((roomId) => {
+        const idx   = rooms.findIndex(r => r.id === roomId);
+        const color = colorPalette[idx % colorPalette.length];
+        multiCalendar.addEventSource({
+          url: `/api/room_data?calendarId=${encodeURIComponent(roomId)}`,
+          color: color,
+          textColor: '#fff'
+        });
+      });
+    }
+  }
+
+  // Trigger the change logic once on page load
+  onRoomsCheckboxChange();
+
+  /* ------------------------------------------------------------------
+     10) View Event Modal
   ------------------------------------------------------------------ */
   let currentEventId = null;
 
@@ -343,15 +389,16 @@ document.addEventListener('DOMContentLoaded', async () => {
       ? endTime.toLocaleString(undefined, formatOptions)
       : 'N/A';
 
-    const rawOrganizer = event.extendedProps?.organizer || '';
-    const orgObj = prefetchedUsers.find(u => u.email && u.email.toLowerCase() === rawOrganizer.toLowerCase());
+    const rawOrganizer = event.extendedProps?.organizer || event.extendedProps?.creator_email || '';
+    const rawAttendees = event.extendedProps?.attendees || event.attendees?.map(a => a.email) || [];
+
+    const orgObj = prefetchedUsers.find(u => u.email?.toLowerCase() === rawOrganizer.toLowerCase());
     const organizerLabel = orgObj
       ? `${orgObj.name} <${orgObj.email}>`
       : rawOrganizer;
 
-    const rawAttendees = event.extendedProps?.attendees || event.attendees || [];
     const attendeeLabels = rawAttendees.map(addr => {
-      const found = prefetchedUsers.find(u => u.email && u.email.toLowerCase() === addr.toLowerCase());
+      const found = prefetchedUsers.find(u => u.email?.toLowerCase() === addr.toLowerCase());
       return found
         ? `${found.name} <${found.email}>`
         : addr;
@@ -362,9 +409,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const isLinked = (event.extendedProps?.is_linked === true || event.extendedProps?.is_linked === 'true');
     let canEditOrDelete = true;
+
     if (isLinked) {
       canEditOrDelete = false;
     } else {
+      // check if currentUserEmail is either the organizer or in attendees
       if (!rawAttendees.includes(currentUserEmail) && rawOrganizer !== currentUserEmail) {
         canEditOrDelete = false;
       }
@@ -394,10 +443,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       try {
         await deleteEvent({ calendarId, id: event.id });
-        const fcEvent = calendars[calendarId]?.getEventById(event.id);
-        if (fcEvent) {
-          fcEvent.remove();
-        }
+        // remove from calendar
+        event.remove();
         viewEventModal.hide();
         showToast("Deleted", "Event was successfully deleted.");
       } catch (err) {
@@ -410,7 +457,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   /* ------------------------------------------------------------------
-     9) Create/Edit Modal => Chips
+     11) Create/Edit Modal => Chips
   ------------------------------------------------------------------ */
   function openEventModal({ calendarId, eventId, title, start, end, attendees }) {
     hideError();
@@ -447,6 +494,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       renderChipsUI();
     }
 
+    // If updating an existing event, do not allow changing time
     if (eventId) {
       eventStartField.disabled = true;
       eventEndField.disabled   = true;
@@ -517,7 +565,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       eventModal.hide();
-      calendars[calendarId].refetchEvents();
+      if (singleCalendar._roomId === calendarId) {
+        singleCalendar.refetchEvents();
+      }
+      // For multiCalendar, we just do a global refetch
+      multiCalendar.getEventSources().forEach(src => src.refetch());
     } catch (err) {
       console.error(err);
       showError('Failed to save event.');
@@ -526,12 +578,15 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Chips UI for create/edit
-  const chipsContainer = eventGuestsContainer;
+  /* 
+    The following code for 'chips' is the same as your prior usage.
+    We maintain an array of 'inviteChips' for participants.
+  */
+  let inviteChips = [];
   const chipsInput     = eventGuestsInput;
 
   function clearChipsUI() {
-    chipsContainer.querySelectorAll('.chip').forEach(ch => ch.remove());
+    eventGuestsContainer.querySelectorAll('.chip').forEach(ch => ch.remove());
   }
 
   function renderChipsUI() {
@@ -552,7 +607,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
 
       chipEl.appendChild(removeBtn);
-      chipsContainer.insertBefore(chipEl, chipsInput);
+      eventGuestsContainer.insertBefore(chipEl, chipsInput);
     });
   }
 
@@ -593,24 +648,19 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function resolveUserToken(token) {
     const lowerToken = token.toLowerCase();
-  
-    // Check email in prefetchedUsers
+    // Check email
     let found = prefetchedUsers.find(u => u.email && u.email.toLowerCase() === lowerToken);
     if (found) {
       const label = found.name ? `${found.name} <${found.email}>` : found.email;
       return { label, email: found.email };
     }
-  
     // Check name
-    found = prefetchedUsers.find(u => {
-      return u.name && u.name.toLowerCase() === lowerToken;
-    });
+    found = prefetchedUsers.find(u => (u.name && u.name.toLowerCase() === lowerToken));
     if (found) {
       const label = found.name ? `${found.name} <${found.email}>` : found.email;
       return { label, email: found.email };
     }
-  
-    // If not in user list => must be valid email
+    // If not found => must be valid email
     if (isValidEmail(token)) {
       return { label: token, email: token };
     }
@@ -660,8 +710,35 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   /* ------------------------------------------------------------------
-     10) Polling for Room & User Updates
+     12) Event CRUD Helpers
   ------------------------------------------------------------------ */
+  async function createEvent({ calendarId, title, start, end, participants }) {
+    return fetchJSON('/api/create_event', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ calendarId, title, start, end, participants }),
+    });
+  }
+  async function updateEvent({ calendarId, eventId, title, start, end, participants }) {
+    return fetchJSON('/api/update_event', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ calendarId, eventId, title, start, end, participants }),
+    });
+  }
+  async function deleteEvent({ calendarId, id }) {
+    return fetchJSON('/api/delete_event', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ calendarId, id }),
+    });
+  }
+
+  /* ------------------------------------------------------------------
+     13) Polling for Room & User Updates (Optional)
+  ------------------------------------------------------------------ */
+  const lastKnownVersions = {}; // { calendarId: number }
+
   setInterval(checkRoomUpdates, 30000);
   setInterval(checkUserUpdates, 30000);
 
@@ -672,9 +749,16 @@ document.addEventListener('DOMContentLoaded', async () => {
         const currentVer = lastKnownVersions[roomId] || 0;
         if (version > currentVer) {
           lastKnownVersions[roomId] = version;
-          if (calendars[roomId]) {
-            calendars[roomId].refetchEvents();
+          // if singleCalendar is showing this room, refetch
+          if (singleCalendar._roomId === roomId) {
+            singleCalendar.refetchEvents();
           }
+          // multiCalendar => refetch eventSources
+          multiCalendar.getEventSources().forEach(src => {
+            if (src.url?.includes(roomId)) {
+              src.refetch();
+            }
+          });
         }
       });
     } catch (err) {
