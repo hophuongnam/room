@@ -528,7 +528,7 @@ def find_calendar_id_by_summary(summary_name)
 end
 
 # -------------------------------------------------
-# UPDATE EVENT
+# UPDATE EVENT (now allows time changes)
 # -------------------------------------------------
 put '/api/update_event' do
   request_data   = JSON.parse(request.body.read)
@@ -536,6 +536,10 @@ put '/api/update_event' do
   event_id       = request_data['eventId']
   title          = request_data['title']
   participants   = request_data['participants'] || []
+
+  # Optional new start/end for time changes
+  new_start_time_str = request_data['start']
+  new_end_time_str   = request_data['end']
 
   halt 400, { error: 'Missing fields' }.to_json unless calendar_id && event_id && title
 
@@ -565,7 +569,20 @@ put '/api/update_event' do
     halt 403, { error: 'You do not have permission to update this event' }.to_json
   end
 
-  # We do NOT allow time changes in this endpoint
+  # Update time if provided
+  if new_start_time_str && new_end_time_str
+    start_time_utc = Time.parse(new_start_time_str).utc
+    end_time_utc   = Time.parse(new_end_time_str).utc
+
+    # Overlap check
+    if events_overlap?(calendar_id, start_time_utc, end_time_utc, event_id)
+      halt 409, { error: 'Time slot overlaps an existing event' }.to_json
+    end
+
+    existing_event.start.date_time = start_time_utc.iso8601
+    existing_event.end.date_time   = end_time_utc.iso8601
+  end
+
   updated_attendees_emails = (participants + [creator_email]).uniq.reject(&:empty?)
   existing_event.summary    = title
   existing_event.attendees  = updated_attendees_emails.map { |em| { email: em } }
@@ -575,7 +592,7 @@ put '/api/update_event' do
   existing_event.location = new_location
 
   result = service.update_event(calendar_id, event_id, existing_event)
-  sync_linked_events(calendar_id, event_id, title, updated_attendees_emails, new_location, service)
+  sync_linked_events(calendar_id, event_id, result.summary, updated_attendees_emails, result.location, service)
 
   updated_events = fetch_events_for_calendar(calendar_id, service)
   if $rooms_data[calendar_id]

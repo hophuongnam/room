@@ -74,8 +74,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function fetchJSON(url, options = {}) {
     const res = await fetch(url, options);
     if (!res.ok) {
+      // read error body to show as toast
       const text = await res.text();
-      throw new Error(`Fetch error (${res.status}): ${text}`);
+      throw new Error(`(${res.status}) ${text}`);
     }
     return res.json();
   }
@@ -105,18 +106,27 @@ document.addEventListener('DOMContentLoaded', async () => {
   /* ------------------------------------------------------------------
      4) Check if user is logged in
   ------------------------------------------------------------------ */
-  let currentUserEmail   = null;
-  let isLoggedIn         = false;
+  let currentUserEmail = null;
+  let isLoggedIn       = false;
 
   try {
     const meRes = await fetch('/api/me');
     if (meRes.status === 200) {
+      // success => user is logged in
       const meData = await meRes.json();
       currentUserEmail = meData.email;
       isLoggedIn = true;
+    } else if (meRes.status === 401) {
+      // 401 => "Not logged in"; silently ignore, no error toast
+      console.log('User not logged in; no problem, we will show the login button.');
+    } else {
+      // Some other non-200, non-401 error => show a toast
+      const errText = await meRes.text();
+      showError(`Could not check /api/me: (${meRes.status}) ${errText}`);
     }
   } catch (err) {
-    console.error('Error checking /api/me:', err);
+    // Network error, etc. => show a toast
+    showError(`Network error checking /api/me: ${err.message}`);
   }
 
   if (isLoggedIn) {
@@ -126,7 +136,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     logoutBtn.style.display = 'none';
     loginBtn.style.display  = 'inline-block';
     roomsCheckboxBar.style.display = 'none';
-    // If not logged in, let's stop or show read-only. For now, just stop:
+    // Not logged in => stop or show read-only; for now, just stop:
     return;
   }
 
@@ -139,7 +149,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const data = await fetchJSON('/api/all_users');
     prefetchedUsers = data.users || [];
   } catch (err) {
-    console.error('Failed to load user list:', err);
+    showError(`Failed to load user list: ${err.message}`);
   }
 
   /* ------------------------------------------------------------------
@@ -150,8 +160,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const data = await fetchJSON('/api/rooms');
     rooms = data.rooms || [];
   } catch (err) {
-    console.error(err);
-    showError('Failed to load rooms.');
+    showError(`Failed to load rooms: ${err.message}`);
     return;
   }
 
@@ -161,7 +170,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   /* ------------------------------------------------------------------
-     7) Build color-coded checkboxes
+     7) Build color-coded checkboxes & store them in a map
   ------------------------------------------------------------------ */
   let storedSelections = [];
   try {
@@ -178,8 +187,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     '#AD1457', '#E67E22', '#8E44AD', '#757575'
   ];
 
+  // Map from room.id => color
+  const roomColors = {};
+
   rooms.forEach((room, index) => {
     const roomColor = colorPalette[index % colorPalette.length];
+    roomColors[room.id] = roomColor;
 
     const wrapper = document.createElement('div');
     wrapper.classList.add('room-checkbox');
@@ -211,8 +224,32 @@ document.addEventListener('DOMContentLoaded', async () => {
   ------------------------------------------------------------------ */
   let singleCalendar;
   let multiCalendar;
-  let singleRoomId = null; // <--- track the selected single-room ID here
+  let singleRoomId = null; // track the selected single-room ID
 
+  // ----------------------------
+  // Helper for front-end overlap
+  // ----------------------------
+  function doesOverlap(movingEvent, newStart, newEnd, calendar) {
+    // We'll do a simple check against existing events in the same calendar.
+    // Return true if there's a conflict with another event that is not the same ID.
+
+    const allEvents = calendar.getEvents();
+    for (const ev of allEvents) {
+      if (ev.id === movingEvent.id) continue;
+
+      const evStart = ev.start?.getTime();
+      const evEnd   = (ev.end || ev.start)?.getTime();
+      const newStartMs = newStart.getTime();
+      const newEndMs   = newEnd.getTime();
+
+      if (evStart < newEndMs && evEnd > newStartMs) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // SINGLE CALENDAR
   singleCalendar = new FullCalendar.Calendar(singleCalendarEl, {
     timeZone: 'local',
     height: 'auto',
@@ -226,39 +263,123 @@ document.addEventListener('DOMContentLoaded', async () => {
       center: 'title',
       right: 'dayGridMonth,timeGridWeek,timeGridDay',
     },
+    selectable: true,
+    selectMirror: true,
+    editable: true,
+    eventResizableFromStart: true,
+
+    // We'll dynamically set "eventColor" below in onRoomsCheckboxChange.
+
+    selectAllow: (selectInfo) => {
+      if (isPast(selectInfo.start)) return false;
+      const dummyEvent = { id: 'dummy' };
+      return !doesOverlap(dummyEvent, selectInfo.start, selectInfo.end, singleCalendar);
+    },
+
+    select: (info) => {
+      if (!singleRoomId) return;
+      openEventModal({
+        calendarId: singleRoomId,
+        start: info.start,
+        end: info.end
+      });
+    },
+
+    eventClick: (clickInfo) => {
+      if (!singleRoomId) return;
+      openViewEventModal(clickInfo.event, singleRoomId);
+    },
+
     events: async (info, successCallback, failureCallback) => {
-      // Instead of singleCalendar._roomId, we use singleRoomId
       if (!singleRoomId) {
-        successCallback([]); // no room => no events
+        successCallback([]);
         return;
       }
       try {
         const data = await fetchJSON(`/api/room_data?calendarId=${encodeURIComponent(singleRoomId)}`);
         successCallback(data.events || []);
       } catch (err) {
-        console.error(err);
+        showError(`Failed to load single-room events: ${err.message}`);
         failureCallback(err);
-        showError('Failed to load single-room events.');
       }
     },
-    dateClick: (info) => {
-      // Don’t open the modal if there's no room selected or if it's in the past
-      if (!singleRoomId || isPast(info.date)) return;
-      const startTime = info.date;
-      const endTime   = new Date(startTime.getTime() + 30 * 60 * 1000);
-      openEventModal({ 
-        calendarId: singleRoomId,
-        start: startTime, 
-        end:   endTime 
-      });
+
+    eventDrop: async (info) => {
+      if (!confirm("Are you sure you want to move this event?")) {
+        info.revert();
+        return;
+      }
+      const event = info.event;
+      const newStart = event.start;
+      const newEnd   = event.end || new Date(newStart.getTime() + 30 * 60 * 1000);
+
+      if (doesOverlap(event, newStart, newEnd, singleCalendar)) {
+        alert("This move overlaps another event in this room. Reverting.");
+        info.revert();
+        return;
+      }
+
+      showSpinner();
+      try {
+        await updateEvent({
+          calendarId: singleRoomId,
+          eventId: event.id,
+          title: event.title,
+          start: newStart.toISOString(),
+          end:   newEnd.toISOString(),
+          participants: event.extendedProps.attendees || []
+        });
+        showToast("Updated", "Event was successfully moved.");
+      } catch (err) {
+        showError(`Failed to move event: ${err.message}`);
+        info.revert();
+      } finally {
+        hideSpinner();
+      }
     },
-    eventClick: (clickInfo) => {
-      if (!singleRoomId) return;
-      openViewEventModal(clickInfo.event, singleRoomId);
-    }
+
+    eventResize: async (info) => {
+      if (!confirm("Are you sure you want to resize this event?")) {
+        info.revert();
+        return;
+      }
+      const event = info.event;
+      const newStart = event.start;
+      const newEnd   = event.end;
+
+      if (!newEnd) {
+        info.revert();
+        return;
+      }
+
+      if (doesOverlap(event, newStart, newEnd, singleCalendar)) {
+        alert("Resized event overlaps another event in this room. Reverting.");
+        info.revert();
+        return;
+      }
+
+      showSpinner();
+      try {
+        await updateEvent({
+          calendarId: singleRoomId,
+          eventId: event.id,
+          title: event.title,
+          start: newStart.toISOString(),
+          end:   newEnd.toISOString(),
+          participants: event.extendedProps.attendees || []
+        });
+        showToast("Updated", "Event was resized successfully.");
+      } catch (err) {
+        showError(`Failed to resize event: ${err.message}`);
+        info.revert();
+      } finally {
+        hideSpinner();
+      }
+    },
   });
   singleCalendar.render();
 
+  // MULTI CALENDAR
   multiCalendar = new FullCalendar.Calendar(multiCalendarEl, {
     timeZone: 'local',
     height: 'auto',
@@ -272,20 +393,102 @@ document.addEventListener('DOMContentLoaded', async () => {
       center: 'title',
       right: 'dayGridMonth,timeGridWeek,timeGridDay',
     },
-    eventSources: [],
+    editable: true,
+    eventResizableFromStart: true,
+
     dateClick: (info) => {
-      // For multiCalendar, we can’t easily pick which room to create in
       showToast("Multiple Rooms", "Select single-room view to create an event.");
     },
     eventClick: (clickInfo) => {
-      // We want to figure out which room ID belongs to this event
-      const source = clickInfo.event.source; 
-      const rawUrl = source?.url || ''; 
-      // e.g. "/api/room_data?calendarId=some%40gmail.com"
+      const source = clickInfo.event.source;
+      const rawUrl = source?.url || '';
       const match  = rawUrl.match(/calendarId=([^&]+)/);
       const roomId = match ? decodeURIComponent(match[1]) : null;
       openViewEventModal(clickInfo.event, roomId);
-    }
+    },
+
+    eventDrop: async (info) => {
+      if (!confirm("Move this event? (Multi-room view)")) {
+        info.revert();
+        return;
+      }
+      const event = info.event;
+      const newStart = event.start;
+      const newEnd   = event.end || new Date(newStart.getTime() + 30*60*1000);
+
+      const sourceUrl = event.source?.url || '';
+      const match = sourceUrl.match(/calendarId=([^&]+)/);
+      const calId = match ? decodeURIComponent(match[1]) : null;
+
+      if (!calId) {
+        info.revert();
+        return;
+      }
+
+      showSpinner();
+      try {
+        await updateEvent({
+          calendarId: calId,
+          eventId: event.id,
+          title: event.title,
+          start: newStart.toISOString(),
+          end:   newEnd.toISOString(),
+          participants: event.extendedProps.attendees || []
+        });
+        showToast("Updated", "Event was moved in multi-room view.");
+        info.event.source?.refetch();
+      } catch (err) {
+        showError(`Failed to move event (multi-room): ${err.message}`);
+        info.revert();
+      } finally {
+        hideSpinner();
+      }
+    },
+
+    eventResize: async (info) => {
+      if (!confirm("Resize this event? (Multi-room view)")) {
+        info.revert();
+        return;
+      }
+      const event = info.event;
+      const newStart = event.start;
+      const newEnd   = event.end;
+
+      if (!newEnd) {
+        info.revert();
+        return;
+      }
+
+      const sourceUrl = event.source?.url || '';
+      const match = sourceUrl.match(/calendarId=([^&]+)/);
+      const calId = match ? decodeURIComponent(match[1]) : null;
+
+      if (!calId) {
+        info.revert();
+        return;
+      }
+
+      showSpinner();
+      try {
+        await updateEvent({
+          calendarId: calId,
+          eventId: event.id,
+          title: event.title,
+          start: newStart.toISOString(),
+          end: newEnd.toISOString(),
+          participants: event.extendedProps.attendees || []
+        });
+        showToast("Updated", "Event was resized in multi-room view.");
+        info.event.source?.refetch();
+      } catch (err) {
+        showError(`Failed to resize event (multi-room): ${err.message}`);
+        info.revert();
+      } finally {
+        hideSpinner();
+      }
+    },
+
+    eventSources: []
   });
   multiCalendar.render();
 
@@ -314,34 +517,33 @@ document.addEventListener('DOMContentLoaded', async () => {
       singleCalendarContainer.style.display = 'block';
       multiCalendarContainer.style.display  = 'none';
 
-      singleRoomId = selectedIds[0]; // <--- store which single room ID we’re using
+      singleRoomId = selectedIds[0];
       const theRoom = rooms.find(r => r.id === singleRoomId);
       selectedRoomName.textContent = theRoom ? theRoom.summary : '';
 
-      singleCalendar.refetchEvents(); // reload the events for that one room
+      // Apply the same color as multi view
+      singleCalendar.setOption('eventColor', roomColors[singleRoomId]);
+
+      singleCalendar.refetchEvents();
 
     } else {
       // Multi-Room View
       singleCalendarContainer.style.display = 'none';
       multiCalendarContainer.style.display  = 'block';
 
-      // Clear singleRoomId & the navbar label
       singleRoomId = null;
       selectedRoomName.textContent = '';
 
-      // remove existing sources
       multiCalendar.removeAllEventSources();
 
-      // add each selected room as an event source
       selectedIds.forEach((roomId) => {
-        const idx   = rooms.findIndex(r => r.id === roomId);
-        const color = colorPalette[idx % colorPalette.length];
+        const color = roomColors[roomId] || '#333';
         multiCalendar.addEventSource({
           url: `/api/room_data?calendarId=${encodeURIComponent(roomId)}`,
           method: 'GET',
           success: (data) => data.events || [],
           failure: (err) => {
-            console.error('Failed to load multi-room events:', err);
+            showError(`Failed to load multi-room events for ${roomId}: ${err.message}`);
           },
           color: color,
           textColor: '#fff'
@@ -349,8 +551,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
     }
   }
-
-  // Trigger the change logic once on page load
   onRoomsCheckboxChange();
 
   /* ------------------------------------------------------------------
@@ -362,7 +562,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     containerEl.innerHTML = '';
     items.forEach((item) => {
       const chip = document.createElement('span');
-      chip.className = 'chip badge bg-secondary me-1'; 
+      chip.className = 'chip badge bg-secondary me-1';
       chip.textContent = item;
       containerEl.appendChild(chip);
     });
@@ -376,7 +576,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const startTime = event.start ? new Date(event.start) : null;
     const endTime   = event.end   ? new Date(event.end)   : null;
-    const formatOptions = { 
+    const formatOptions = {
       year: 'numeric', month: 'long', day: 'numeric',
       hour: '2-digit', minute: '2-digit'
     };
@@ -411,7 +611,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (isLinked) {
       canEditOrDelete = false;
     } else {
-      // check if currentUserEmail is either the organizer or in attendees
       if (!rawAttendees.includes(currentUserEmail) && rawOrganizer !== currentUserEmail) {
         canEditOrDelete = false;
       }
@@ -441,13 +640,11 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       try {
         await deleteEvent({ calendarId, id: event.id });
-        // remove from calendar
         event.remove();
         viewEventModal.hide();
         showToast("Deleted", "Event was successfully deleted.");
       } catch (err) {
-        console.error(err);
-        showError('Failed to delete event.');
+        showError(`Failed to delete event: ${err.message}`);
       }
     };
 
@@ -492,7 +689,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       renderChipsUI();
     }
 
-    // If updating an existing event, do NOT allow changing time
+    // If updating existing event, do NOT allow changing time in the modal.
     if (eventId) {
       eventStartField.disabled = true;
       eventEndField.disabled   = true;
@@ -525,7 +722,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const participants = inviteChips.map(ch => ch.email);
 
     if (!eventId) {
-      // Creating a new event
       if (!startUTC || !endUTC) {
         showError('Missing start or end time.');
         return;
@@ -564,17 +760,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       eventModal.hide();
-
-      // Refresh singleCalendar if it matches the updated room
       if (singleRoomId === calendarId) {
         singleCalendar.refetchEvents();
       }
-      // For multiCalendar => refetch all
       multiCalendar.getEventSources().forEach(src => src.refetch());
 
     } catch (err) {
-      console.error(err);
-      showError('Failed to save event.');
+      showError(`Failed to save event: ${err.message}`);
     } finally {
       hideSpinner();
     }
@@ -649,26 +841,23 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function resolveUserToken(token) {
     const lowerToken = token.toLowerCase();
-    // Check email
     let found = prefetchedUsers.find(u => u.email && u.email.toLowerCase() === lowerToken);
     if (found) {
       const label = found.name ? `${found.name} <${found.email}>` : found.email;
       return { label, email: found.email };
     }
-    // Check name
     found = prefetchedUsers.find(u => (u.name && u.name.toLowerCase() === lowerToken));
     if (found) {
       const label = found.name ? `${found.name} <${found.email}>` : found.email;
       return { label, email: found.email };
     }
-    // If not found => must be valid email
     if (isValidEmail(token)) {
       return { label: token, email: token };
     }
     return null;
   }
 
-  // Basic typeahead
+  // Simple typeahead
   let typeaheadDiv;
   chipsInput.addEventListener('input', (e) => {
     const val = e.target.value.toLowerCase().trim();
@@ -679,7 +868,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!val) return;
 
     const matches = prefetchedUsers.filter(u => 
-      u.email.toLowerCase().includes(val) || 
+      u.email.toLowerCase().includes(val) ||
       (u.name && u.name.toLowerCase().includes(val))
     ).slice(0, 5);
 
@@ -750,11 +939,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         const currentVer = lastKnownVersions[roomId] || 0;
         if (version > currentVer) {
           lastKnownVersions[roomId] = version;
-          // if singleRoomId matches, refetch singleCalendar
           if (singleRoomId === roomId) {
             singleCalendar.refetchEvents();
           }
-          // For multiCalendar => refetch the relevant eventSource
           multiCalendar.getEventSources().forEach(src => {
             if (src.url?.includes(roomId)) {
               src.refetch();
@@ -763,7 +950,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       });
     } catch (err) {
-      console.error('Failed to check updates:', err);
+      showError(`Failed to check room updates: ${err.message}`);
     }
   }
 
@@ -778,7 +965,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         prefetchedUsers = allData.users || [];
       }
     } catch (err) {
-      console.error('Failed to check user updates:', err);
+      showError(`Failed to check user updates: ${err.message}`);
     }
   }
 
