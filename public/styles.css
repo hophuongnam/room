@@ -22,7 +22,7 @@ body {
 }
 
 /* 
-   The main navbar is .fixed-top => we need top margin for content
+   The main navbar is .fixed-top => we need top margin for content.
    We also have a second fixed bar (#roomsCheckboxBar).
    So let's add enough top margin.
 */
@@ -106,11 +106,7 @@ body {
   border-bottom: 1px solid #ccc;
 }
 
-/* 
-   Each checkbox wrapper
-   We define a fallback color, can be overridden inline with
-   wrapper.style.setProperty('--room-color', <actual_color>);
-*/
+/* Each checkbox wrapper */
 .room-checkbox {
   display: inline-flex;
   align-items: center;
@@ -118,10 +114,7 @@ body {
   --room-color: #ccc;
 }
 
-/* 
-   Hide the default checkbox appearance, and draw our own custom box+check 
-   so that we can make the checkmark black and the box in the room color
-*/
+/* Hide default checkbox, draw our own custom box+check */
 .room-checkbox input[type="checkbox"] {
   appearance: none;
   -webkit-appearance: none;
@@ -137,12 +130,11 @@ body {
   position: relative;
 }
 
-/* When checked => fill the box with room-color */
 .room-checkbox input[type="checkbox"]:checked {
   background-color: var(--room-color);
 }
 
-/* Use a pseudo-element to draw the black check mark */
+/* Black check mark */
 .room-checkbox input[type="checkbox"]:checked::after {
   content: "";
   position: absolute;
@@ -169,9 +161,8 @@ body {
   text-decoration: underline;
 }
 
-/* ------------------------
-   Toast / Misc
------------------------- */
-.text-white {
+#selectedRoomNameSpan {
   font-size: x-large;
+  color: white;
+  padding: unset;
 }
