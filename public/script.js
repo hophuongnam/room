@@ -126,8 +126,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     logoutBtn.style.display = 'none';
     loginBtn.style.display  = 'inline-block';
     roomsCheckboxBar.style.display = 'none';
-    // If not logged in, you might prevent further usage or show read-only
-    // For now, let's just return.
+    // If not logged in, let's stop or show read-only. For now, just stop:
     return;
   }
 
@@ -162,9 +161,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   /* ------------------------------------------------------------------
-     7) Build the new color-coded checkboxes
+     7) Build color-coded checkboxes
   ------------------------------------------------------------------ */
-  // We'll store the user's selected rooms in localStorage
   let storedSelections = [];
   try {
     const raw = localStorage.getItem('selectedRoomIds');
@@ -172,10 +170,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       storedSelections = JSON.parse(raw); // array of room IDs
     }
   } catch (err) {
-    console.error('Error parsing localStorage', err);
+    console.error('Error parsing localStorage:', err);
   }
 
-  // We'll pick colors from a palette
   const colorPalette = [
     '#F16B61', '#3B76C2', '#EC8670', '#009688',
     '#AD1457', '#E67E22', '#8E44AD', '#757575'
@@ -184,42 +181,39 @@ document.addEventListener('DOMContentLoaded', async () => {
   rooms.forEach((room, index) => {
     const roomColor = colorPalette[index % colorPalette.length];
 
-    // parent container
     const wrapper = document.createElement('div');
     wrapper.classList.add('room-checkbox');
 
-    // checkbox
     const chk = document.createElement('input');
     chk.type = 'checkbox';
     chk.id   = `roomChk_${room.id}`;
     chk.value= room.id;
 
-    // if storedSelections includes this ID, check it
     if (storedSelections.includes(room.id)) {
       chk.checked = true;
     }
 
-    // label
     const lbl = document.createElement('label');
     lbl.setAttribute('for', `roomChk_${room.id}`);
     lbl.style.setProperty('--room-color', roomColor);
     lbl.textContent = room.summary;
 
-    // events
     chk.addEventListener('change', onRoomsCheckboxChange);
 
-    // assemble
     wrapper.appendChild(chk);
     wrapper.appendChild(lbl);
     roomsCheckboxBar.appendChild(wrapper);
   });
 
   /* ------------------------------------------------------------------
-     8) Setup 2 FullCalendar Instances
-        SingleCalendar => for exactly 1 room
-        MultiCalendar  => for 2+ rooms
+     8) Single & Multi Calendar Setup
+        We'll store the selected single-room ID in a separate variable
   ------------------------------------------------------------------ */
-  let singleCalendar = new FullCalendar.Calendar(singleCalendarEl, {
+  let singleCalendar;
+  let multiCalendar;
+  let singleRoomId = null; // <--- track the selected single-room ID here
+
+  singleCalendar = new FullCalendar.Calendar(singleCalendarEl, {
     timeZone: 'local',
     height: 'auto',
     nowIndicator: true,
@@ -233,12 +227,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       right: 'dayGridMonth,timeGridWeek,timeGridDay',
     },
     events: async (info, successCallback, failureCallback) => {
-      if (!singleCalendar._roomId) {
-        successCallback([]);
+      // Instead of singleCalendar._roomId, we use singleRoomId
+      if (!singleRoomId) {
+        successCallback([]); // no room => no events
         return;
       }
       try {
-        const data = await fetchJSON(`/api/room_data?calendarId=${encodeURIComponent(singleCalendar._roomId)}`);
+        const data = await fetchJSON(`/api/room_data?calendarId=${encodeURIComponent(singleRoomId)}`);
         successCallback(data.events || []);
       } catch (err) {
         console.error(err);
@@ -247,22 +242,24 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
     },
     dateClick: (info) => {
-      if (isPast(info.date)) return;
+      // Don’t open the modal if there's no room selected or if it's in the past
+      if (!singleRoomId || isPast(info.date)) return;
       const startTime = info.date;
-      const endTime   = new Date(startTime.getTime() + 30*60*1000);
+      const endTime   = new Date(startTime.getTime() + 30 * 60 * 1000);
       openEventModal({ 
-        calendarId: singleCalendar._roomId,
+        calendarId: singleRoomId,
         start: startTime, 
         end:   endTime 
       });
     },
     eventClick: (clickInfo) => {
-      openViewEventModal(clickInfo.event, singleCalendar._roomId);
+      if (!singleRoomId) return;
+      openViewEventModal(clickInfo.event, singleRoomId);
     }
   });
   singleCalendar.render();
 
-  let multiCalendar = new FullCalendar.Calendar(multiCalendarEl, {
+  multiCalendar = new FullCalendar.Calendar(multiCalendarEl, {
     timeZone: 'local',
     height: 'auto',
     nowIndicator: true,
@@ -275,28 +272,25 @@ document.addEventListener('DOMContentLoaded', async () => {
       center: 'title',
       right: 'dayGridMonth,timeGridWeek,timeGridDay',
     },
-    // We'll dynamically add eventSources below
     eventSources: [],
     dateClick: (info) => {
-      // For multiCalendar, we can’t create an event on "all" rooms
-      // Usually you'd pick which room to create an event in
-      // For now, let's ignore dateClick or show an error
-      showToast("Multiple Rooms", "Select single-room view to create an event easily.");
+      // For multiCalendar, we can’t easily pick which room to create in
+      showToast("Multiple Rooms", "Select single-room view to create an event.");
     },
     eventClick: (clickInfo) => {
-      // We need to track which room this event belongs to
-      // We'll rely on event.extendedProps.original_calendar_id if set,
-      // or we can store the eventSource's roomId. We'll just pass that.
-      const source = clickInfo.event.source; // a FullCalendar EventSource
-      // If you need to track the calendarId from the event source:
-      const roomId = source?.url?.split('=')[1] || null;
-      openViewEventModal(clickInfo.event, decodeURIComponent(roomId) || null);
+      // We want to figure out which room ID belongs to this event
+      const source = clickInfo.event.source; 
+      const rawUrl = source?.url || ''; 
+      // e.g. "/api/room_data?calendarId=some%40gmail.com"
+      const match  = rawUrl.match(/calendarId=([^&]+)/);
+      const roomId = match ? decodeURIComponent(match[1]) : null;
+      openViewEventModal(clickInfo.event, roomId);
     }
   });
   multiCalendar.render();
 
   /* ------------------------------------------------------------------
-     9) Check/Uncheck => Single or Multi
+     9) onRoomsCheckboxChange => Single or Multi
   ------------------------------------------------------------------ */
   function onRoomsCheckboxChange() {
     const checkboxes = roomsCheckboxBar.querySelectorAll('input[type="checkbox"]');
@@ -316,24 +310,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     if (selectedIds.length === 1) {
-      // Single
+      // Single-Room View
       singleCalendarContainer.style.display = 'block';
       multiCalendarContainer.style.display  = 'none';
 
-      // show the name in the navbar
-      const theRoom = rooms.find(r => r.id === selectedIds[0]);
+      singleRoomId = selectedIds[0]; // <--- store which single room ID we’re using
+      const theRoom = rooms.find(r => r.id === singleRoomId);
       selectedRoomName.textContent = theRoom ? theRoom.summary : '';
 
-      // set the calendar's _roomId, refetch
-      singleCalendar._roomId = selectedIds[0];
-      singleCalendar.refetchEvents();
+      singleCalendar.refetchEvents(); // reload the events for that one room
 
     } else {
-      // Multi
+      // Multi-Room View
       singleCalendarContainer.style.display = 'none';
       multiCalendarContainer.style.display  = 'block';
 
-      // Clear the navbar room name
+      // Clear singleRoomId & the navbar label
+      singleRoomId = null;
       selectedRoomName.textContent = '';
 
       // remove existing sources
@@ -345,6 +338,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         const color = colorPalette[idx % colorPalette.length];
         multiCalendar.addEventSource({
           url: `/api/room_data?calendarId=${encodeURIComponent(roomId)}`,
+          method: 'GET',
+          success: (data) => data.events || [],
+          failure: (err) => {
+            console.error('Failed to load multi-room events:', err);
+          },
           color: color,
           textColor: '#fff'
         });
@@ -494,7 +492,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       renderChipsUI();
     }
 
-    // If updating an existing event, do not allow changing time
+    // If updating an existing event, do NOT allow changing time
     if (eventId) {
       eventStartField.disabled = true;
       eventEndField.disabled   = true;
@@ -527,6 +525,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const participants = inviteChips.map(ch => ch.email);
 
     if (!eventId) {
+      // Creating a new event
       if (!startUTC || !endUTC) {
         showError('Missing start or end time.');
         return;
@@ -565,11 +564,14 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       eventModal.hide();
-      if (singleCalendar._roomId === calendarId) {
+
+      // Refresh singleCalendar if it matches the updated room
+      if (singleRoomId === calendarId) {
         singleCalendar.refetchEvents();
       }
-      // For multiCalendar, we just do a global refetch
+      // For multiCalendar => refetch all
       multiCalendar.getEventSources().forEach(src => src.refetch());
+
     } catch (err) {
       console.error(err);
       showError('Failed to save event.');
@@ -578,12 +580,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  /* 
-    The following code for 'chips' is the same as your prior usage.
-    We maintain an array of 'inviteChips' for participants.
-  */
+  /* ------------------------------------------------------------------
+     12) Chips for participants
+  ------------------------------------------------------------------ */
   let inviteChips = [];
-  const chipsInput     = eventGuestsInput;
+  const chipsInput = eventGuestsInput;
 
   function clearChipsUI() {
     eventGuestsContainer.querySelectorAll('.chip').forEach(ch => ch.remove());
@@ -633,7 +634,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const chipData = resolveUserToken(tok);
       if (!chipData) {
         showError(`"${tok}" is not recognized as a user or valid email address.`);
-        return; 
+        return;
       }
       addChip(chipData);
     });
@@ -710,7 +711,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   });
 
   /* ------------------------------------------------------------------
-     12) Event CRUD Helpers
+     13) Event CRUD Helpers
   ------------------------------------------------------------------ */
   async function createEvent({ calendarId, title, start, end, participants }) {
     return fetchJSON('/api/create_event', {
@@ -735,9 +736,9 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   /* ------------------------------------------------------------------
-     13) Polling for Room & User Updates (Optional)
+     14) Polling for Room & User Updates
   ------------------------------------------------------------------ */
-  const lastKnownVersions = {}; // { calendarId: number }
+  const lastKnownVersions = {};
 
   setInterval(checkRoomUpdates, 30000);
   setInterval(checkUserUpdates, 30000);
@@ -749,11 +750,11 @@ document.addEventListener('DOMContentLoaded', async () => {
         const currentVer = lastKnownVersions[roomId] || 0;
         if (version > currentVer) {
           lastKnownVersions[roomId] = version;
-          // if singleCalendar is showing this room, refetch
-          if (singleCalendar._roomId === roomId) {
+          // if singleRoomId matches, refetch singleCalendar
+          if (singleRoomId === roomId) {
             singleCalendar.refetchEvents();
           }
-          // multiCalendar => refetch eventSources
+          // For multiCalendar => refetch the relevant eventSource
           multiCalendar.getEventSources().forEach(src => {
             if (src.url?.includes(roomId)) {
               src.refetch();
