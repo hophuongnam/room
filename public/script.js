@@ -4,15 +4,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   ------------------------------------------------------------------ */
   const loginBtn         = document.getElementById('loginBtn');
   const logoutBtn        = document.getElementById('logoutBtn');
-  const errorAlert       = document.getElementById('errorAlert');
   const loadingSpinner   = document.getElementById('loadingSpinner');
 
-  // The new bar for checkboxes
   const roomsCheckboxBar = document.getElementById('roomsCheckboxBar');
 
   // Single & Multi Calendar Containers
-  const singleCalendarContainer= document.getElementById('singleCalendarContainer');
-  const multiCalendarContainer = document.getElementById('multiCalendarContainer');
+  const singleCalendarContainer = document.getElementById('singleCalendarContainer');
+  const multiCalendarContainer  = document.getElementById('multiCalendarContainer');
 
   // Calendar DOM elements
   const singleCalendarEl = document.getElementById('singleCalendar');
@@ -22,48 +20,47 @@ document.addEventListener('DOMContentLoaded', async () => {
   const selectedRoomName = document.getElementById('selectedRoomName');
 
   // View Event Modal + elements
-  const viewEventModal         = new bootstrap.Modal(document.getElementById('viewEventModal'));
-  const viewEventTitle         = document.getElementById('viewEventTitle');
-  const viewEventStart         = document.getElementById('viewEventStart');
-  const viewEventEnd           = document.getElementById('viewEventEnd');
-  const viewEventEditBtn       = document.getElementById('viewEventEditBtn');
-  const viewEventDeleteBtn     = document.getElementById('viewEventDeleteBtn');
-  const viewEventOrganizerChips= document.getElementById('viewEventOrganizerChips');
-  const viewEventAttendeesChips= document.getElementById('viewEventAttendeesChips');
+  const viewEventModal          = new bootstrap.Modal(document.getElementById('viewEventModal'));
+  const viewEventTitle          = document.getElementById('viewEventTitle');
+  const viewEventStart          = document.getElementById('viewEventStart');
+  const viewEventEnd            = document.getElementById('viewEventEnd');
+  const viewEventEditBtn        = document.getElementById('viewEventEditBtn');
+  const viewEventDeleteBtn      = document.getElementById('viewEventDeleteBtn');
+  const viewEventOrganizerChips = document.getElementById('viewEventOrganizerChips');
+  const viewEventAttendeesChips = document.getElementById('viewEventAttendeesChips');
 
   // Create/Edit Event Modal
-  const eventModal             = new bootstrap.Modal(document.getElementById('eventModal'));
-  const eventForm              = document.getElementById('eventForm');
-  const calendarIdField        = document.getElementById('calendarId');
-  const eventIdField           = document.getElementById('eventId');
-  const eventTitleField        = document.getElementById('eventTitle');
-  const eventStartField        = document.getElementById('eventStart');
-  const eventEndField          = document.getElementById('eventEnd');
-  const eventGuestsContainer   = document.getElementById('eventGuestsContainer');
-  const eventGuestsInput       = document.getElementById('eventGuestsInput');
+  const eventModal              = new bootstrap.Modal(document.getElementById('eventModal'));
+  const eventForm               = document.getElementById('eventForm');
+  const calendarIdField         = document.getElementById('calendarId');
+  const eventIdField            = document.getElementById('eventId');
+  const eventTitleField         = document.getElementById('eventTitle');
+  const eventStartField         = document.getElementById('eventStart');
+  const eventEndField           = document.getElementById('eventEnd');
+  const eventGuestsContainer    = document.getElementById('eventGuestsContainer');
+  const eventGuestsInput        = document.getElementById('eventGuestsInput');
 
   // Toast
-  const toastEl       = document.getElementById('myToast');
-  const toastTitleEl  = document.getElementById('toastTitle');
-  const toastBodyEl   = document.getElementById('toastBody');
-  const bsToast       = new bootstrap.Toast(toastEl, { delay: 3000 });
+  const toastEl      = document.getElementById('myToast');
+  const toastTitleEl = document.getElementById('toastTitle');
+  const toastBodyEl  = document.getElementById('toastBody');
+  const bsToast      = new bootstrap.Toast(toastEl, { delay: 3000 });
 
   /* ------------------------------------------------------------------
-     2) Helper Functions
+     2) Toast Helpers
   ------------------------------------------------------------------ */
-  function showToast(title, body) {
+  function showToast(title, message) {
     toastTitleEl.textContent = title;
-    toastBodyEl.textContent  = body;
+    toastBodyEl.textContent  = message;
     bsToast.show();
   }
-  function showError(msg) {
-    errorAlert.textContent = msg;
-    errorAlert.classList.remove('d-none');
-    showToast("Error", msg);
+
+  // We'll have a helper for errors to unify the message
+  function showError(message) {
+    showToast('Error', message);
   }
-  function hideError() {
-    errorAlert.classList.add('d-none');
-  }
+
+  // Spinner
   function showSpinner() {
     loadingSpinner.classList.remove('d-none');
   }
@@ -71,16 +68,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     loadingSpinner.classList.add('d-none');
   }
 
+  /* Helper fetch that throws an Error for non-OK statuses */
   async function fetchJSON(url, options = {}) {
     const res = await fetch(url, options);
     if (!res.ok) {
-      // read error body to show as toast
       const text = await res.text();
       throw new Error(`(${res.status}) ${text}`);
     }
     return res.json();
   }
 
+  /* Misc helpers */
   function toLocalDateTimeInput(jsDate) {
     const year   = jsDate.getFullYear();
     const month  = String(jsDate.getMonth() + 1).padStart(2, '0');
@@ -112,20 +110,17 @@ document.addEventListener('DOMContentLoaded', async () => {
   try {
     const meRes = await fetch('/api/me');
     if (meRes.status === 200) {
-      // success => user is logged in
       const meData = await meRes.json();
       currentUserEmail = meData.email;
       isLoggedIn = true;
     } else if (meRes.status === 401) {
-      // 401 => "Not logged in"; silently ignore, no error toast
-      console.log('User not logged in; no problem, we will show the login button.');
+      // Not logged in => no toast needed, we'll just show login
+      console.log('User not logged in');
     } else {
-      // Some other non-200, non-401 error => show a toast
       const errText = await meRes.text();
       showError(`Could not check /api/me: (${meRes.status}) ${errText}`);
     }
   } catch (err) {
-    // Network error, etc. => show a toast
     showError(`Network error checking /api/me: ${err.message}`);
   }
 
@@ -136,12 +131,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     logoutBtn.style.display = 'none';
     loginBtn.style.display  = 'inline-block';
     roomsCheckboxBar.style.display = 'none';
-    // Not logged in => stop or show read-only; for now, just stop:
+    // not logged in => stop
     return;
   }
 
   /* ------------------------------------------------------------------
-     5) Fetch user list (for the invite chips)
+     5) Fetch user list 
   ------------------------------------------------------------------ */
   let prefetchedUsers = [];
   let lastKnownUserVersion = 1;
@@ -170,13 +165,13 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   /* ------------------------------------------------------------------
-     7) Build color-coded checkboxes & store them in a map
+     7) Build color-coded checkboxes 
   ------------------------------------------------------------------ */
   let storedSelections = [];
   try {
     const raw = localStorage.getItem('selectedRoomIds');
     if (raw) {
-      storedSelections = JSON.parse(raw); // array of room IDs
+      storedSelections = JSON.parse(raw);
     }
   } catch (err) {
     console.error('Error parsing localStorage:', err);
@@ -187,7 +182,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     '#AD1457', '#E67E22', '#8E44AD', '#757575'
   ];
 
-  // Map from room.id => color
   const roomColors = {};
 
   rooms.forEach((room, index) => {
@@ -196,6 +190,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const wrapper = document.createElement('div');
     wrapper.classList.add('room-checkbox');
+    wrapper.style.setProperty('--room-color', roomColor);
 
     const chk = document.createElement('input');
     chk.type = 'checkbox';
@@ -208,7 +203,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const lbl = document.createElement('label');
     lbl.setAttribute('for', `roomChk_${room.id}`);
-    lbl.style.setProperty('--room-color', roomColor);
     lbl.textContent = room.summary;
 
     chk.addEventListener('change', onRoomsCheckboxChange);
@@ -220,23 +214,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   /* ------------------------------------------------------------------
      8) Single & Multi Calendar Setup
-        We'll store the selected single-room ID in a separate variable
   ------------------------------------------------------------------ */
   let singleCalendar;
   let multiCalendar;
-  let singleRoomId = null; // track the selected single-room ID
+  let singleRoomId = null;
 
-  // ----------------------------
-  // Helper for front-end overlap
-  // ----------------------------
+  // Overlap check
   function doesOverlap(movingEvent, newStart, newEnd, calendar) {
-    // We'll do a simple check against existing events in the same calendar.
-    // Return true if there's a conflict with another event that is not the same ID.
-
     const allEvents = calendar.getEvents();
     for (const ev of allEvents) {
       if (ev.id === movingEvent.id) continue;
-
       const evStart = ev.start?.getTime();
       const evEnd   = (ev.end || ev.start)?.getTime();
       const newStartMs = newStart.getTime();
@@ -267,8 +254,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     selectMirror: true,
     editable: true,
     eventResizableFromStart: true,
-
-    // We'll dynamically set "eventColor" below in onRoomsCheckboxChange.
 
     selectAllow: (selectInfo) => {
       if (isPast(selectInfo.start)) return false;
@@ -314,7 +299,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const newEnd   = event.end || new Date(newStart.getTime() + 30 * 60 * 1000);
 
       if (doesOverlap(event, newStart, newEnd, singleCalendar)) {
-        alert("This move overlaps another event in this room. Reverting.");
+        showToast('Error', "This move overlaps another event in this room. Reverting.");
         info.revert();
         return;
       }
@@ -353,7 +338,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       if (doesOverlap(event, newStart, newEnd, singleCalendar)) {
-        alert("Resized event overlaps another event in this room. Reverting.");
+        showToast('Error', "Resized event overlaps another event in this room. Reverting.");
         info.revert();
         return;
       }
@@ -475,7 +460,7 @@ document.addEventListener('DOMContentLoaded', async () => {
           eventId: event.id,
           title: event.title,
           start: newStart.toISOString(),
-          end: newEnd.toISOString(),
+          end:   newEnd.toISOString(),
           participants: event.extendedProps.attendees || []
         });
         showToast("Updated", "Event was resized in multi-room view.");
@@ -501,11 +486,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       .filter(ch => ch.checked)
       .map(ch => ch.value);
 
-    // Save to localStorage
     localStorage.setItem('selectedRoomIds', JSON.stringify(selectedIds));
 
     if (selectedIds.length === 0) {
-      // default to the first room
       selectedIds.push(rooms[0].id);
       const firstChk = document.getElementById(`roomChk_${rooms[0].id}`);
       if (firstChk) firstChk.checked = true;
@@ -521,11 +504,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       const theRoom = rooms.find(r => r.id === singleRoomId);
       selectedRoomName.textContent = theRoom ? theRoom.summary : '';
 
-      // Apply the same color as multi view
       singleCalendar.setOption('eventColor', roomColors[singleRoomId]);
-
       singleCalendar.refetchEvents();
-
     } else {
       // Multi-Room View
       singleCalendarContainer.style.display = 'none';
@@ -535,7 +515,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       selectedRoomName.textContent = '';
 
       multiCalendar.removeAllEventSources();
-
       selectedIds.forEach((roomId) => {
         const color = roomColors[roomId] || '#333';
         multiCalendar.addEventSource({
@@ -569,7 +548,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function openViewEventModal(event, calendarId) {
-    hideError();
     currentEventId = event.id;
 
     viewEventTitle.textContent = event.title || 'Untitled';
@@ -655,8 +633,6 @@ document.addEventListener('DOMContentLoaded', async () => {
      11) Create/Edit Modal => Chips
   ------------------------------------------------------------------ */
   function openEventModal({ calendarId, eventId, title, start, end, attendees }) {
-    hideError();
-
     calendarIdField.value = calendarId || '';
     eventIdField.value    = eventId    || '';
     eventTitleField.value = title      || '';
@@ -689,7 +665,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       renderChipsUI();
     }
 
-    // If updating existing event, do NOT allow changing time in the modal.
+    // If updating existing event => do NOT allow changing time in the modal
     if (eventId) {
       eventStartField.disabled = true;
       eventEndField.disabled   = true;
@@ -703,7 +679,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   eventForm.addEventListener('submit', async (e) => {
     e.preventDefault();
-    hideError();
 
     const calendarId = calendarIdField.value;
     const eventId    = eventIdField.value;
@@ -760,6 +735,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       }
 
       eventModal.hide();
+
       if (singleRoomId === calendarId) {
         singleCalendar.refetchEvents();
       }
@@ -857,7 +833,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     return null;
   }
 
-  // Simple typeahead
+  // Basic typeahead
   let typeaheadDiv;
   chipsInput.addEventListener('input', (e) => {
     const val = e.target.value.toLowerCase().trim();
@@ -909,6 +885,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       body: JSON.stringify({ calendarId, title, start, end, participants }),
     });
   }
+
   async function updateEvent({ calendarId, eventId, title, start, end, participants }) {
     return fetchJSON('/api/update_event', {
       method: 'PUT',
@@ -916,6 +893,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       body: JSON.stringify({ calendarId, eventId, title, start, end, participants }),
     });
   }
+
   async function deleteEvent({ calendarId, id }) {
     return fetchJSON('/api/delete_event', {
       method: 'DELETE',
@@ -960,7 +938,6 @@ document.addEventListener('DOMContentLoaded', async () => {
       const serverVer = data.version || 1;
       if (serverVer > lastKnownUserVersion) {
         lastKnownUserVersion = serverVer;
-        // re-fetch user list
         const allData = await fetchJSON('/api/all_users');
         prefetchedUsers = allData.users || [];
       }
@@ -969,7 +946,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // Initial checks
   checkRoomUpdates();
   checkUserUpdates();
 });

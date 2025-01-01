@@ -23,19 +23,12 @@ body {
 
 /* 
    The main navbar is .fixed-top => we need top margin for content
-   Now we also have a second fixed bar (#roomsCheckboxBar).
-   So let's increase the margin.
+   We also have a second fixed bar (#roomsCheckboxBar).
+   So let's add enough top margin.
 */
 .content-below-navbar {
-  margin-top: 120px; /* was 80px; now ~120 to fit the 2 bars comfortably */
+  margin-top: 120px; 
   padding: 20px;
-}
-
-/* ------------------------
-   Error Alert
------------------------- */
-.alert {
-  margin-bottom: 20px;
 }
 
 /* ------------------------
@@ -47,7 +40,7 @@ body {
   left: 50%;
   transform: translate(-50%, -50%);
 }
-/* By default hidden with .d-none */
+/* Hidden by default with .d-none */
 
 /* ------------------------
    FullCalendar Hover
@@ -96,16 +89,12 @@ body {
   min-height: 0;
 }
 
-.text-white {
-  font-size: x-large;
-}
-
 /* ------------------------
    Rooms Checkbox Bar
 ------------------------ */
 #roomsCheckboxBar {
   position: fixed;
-  top: 60px; /* Just below the navbar (which is ~56-60px tall) */
+  top: 60px; /* Just below the navbar (~56-60px tall) */
   left: 0;
   width: 100%;
   background-color: #f9f9f9;
@@ -113,53 +102,76 @@ body {
   padding: 8px 16px;
   display: flex;
   align-items: center;
-  gap: 16px; /* space between checkboxes */
+  gap: 16px; /* space between checkbox groups */
   border-bottom: 1px solid #ccc;
 }
 
-/* Each checkbox wrapper */
+/* 
+   Each checkbox wrapper
+   We define a fallback color, can be overridden inline with
+   wrapper.style.setProperty('--room-color', <actual_color>);
+*/
 .room-checkbox {
   display: inline-flex;
   align-items: center;
+  margin-right: 16px; 
+  --room-color: #ccc;
+}
+
+/* 
+   Hide the default checkbox appearance, and draw our own custom box+check 
+   so that we can make the checkmark black and the box in the room color
+*/
+.room-checkbox input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  outline: none;
+  cursor: pointer;
+
+  width: 1.3rem;
+  height: 1.3rem;
+  margin-right: 0.4rem;
+  border: 2px solid var(--room-color);
+  border-radius: 3px;
+  background: transparent;
   position: relative;
 }
 
-/* Hide the native checkbox */
-.room-checkbox input[type="checkbox"] {
-  position: absolute;
-  opacity: 0;
-  pointer-events: none;
-}
-
-/* The label becomes the "colored box" + text */
-.room-checkbox label {
-  --room-color: #ccc; /* default fallback */
+/* When checked => fill the box with room-color */
+.room-checkbox input[type="checkbox"]:checked {
   background-color: var(--room-color);
-  color: #fff; /* text color */
-  padding: 0.3rem 0.6rem;
-  border-radius: 4px;
-  font-size: 0.9rem;
-  cursor: pointer;
-  user-select: none;
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
 }
 
-/* We'll insert a checkmark when the box is checked */
-.room-checkbox label::before {
+/* Use a pseudo-element to draw the black check mark */
+.room-checkbox input[type="checkbox"]:checked::after {
   content: "";
-  display: inline-block;
-  width: 1em;
-  text-align: center;
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 0.4rem;
+  height: 0.7rem;
+  border: solid black;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
 }
 
-.room-checkbox input[type="checkbox"]:checked + label::before {
-  content: "✓";
-  color: #fff;
+/* Label text remains normal color */
+.room-checkbox label {
+  background-color: transparent !important;
+  color: #000 !important;
+  cursor: pointer;
+  margin: 0;
+  padding: 0;
 }
 
-/* On hover, slightly darken or lighten */
-.room-checkbox label:hover {
-  filter: brightness(0.95);
+/* Hover effect */
+.room-checkbox:hover label {
+  text-decoration: underline;
+}
+
+/* ------------------------
+   Toast / Misc
+------------------------ */
+.text-white {
+  font-size: x-large;
 }
