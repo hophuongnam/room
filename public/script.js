@@ -8,8 +8,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const roomsCheckboxBar = document.getElementById('roomsCheckboxBar');
 
   // We only have one calendar container now
-  const multiCalendarContainer = document.getElementById('multiCalendarContainer');
-  const multiCalendarEl        = document.getElementById('multiCalendar');
+  const multiCalendarEl  = document.getElementById('multiCalendar');
 
   // Navbar label for single-room display
   const selectedRoomNameSpan = document.getElementById('selectedRoomNameSpan');
@@ -151,9 +150,29 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   /* ------------------------------------------------------------------
-     7) Initialize FullCalendar first
+     7) Pre-Fetch All Room Events => store in memory
   ------------------------------------------------------------------ */
-  // We'll add event sources after building checkboxes
+  const allEventsMap = {}; 
+  async function prefetchAllRooms() {
+    showSpinner();
+    try {
+      for (const room of rooms) {
+        const resp = await fetchJSON(`/api/room_data?calendarId=${encodeURIComponent(room.id)}`);
+        allEventsMap[room.id] = resp.events || [];
+      }
+    } catch (error) {
+      showError(`Error prefetching room events: ${error.message}`);
+    } finally {
+      hideSpinner();
+    }
+  }
+
+  await prefetchAllRooms();
+
+  /* ------------------------------------------------------------------
+     8) Initialize FullCalendar
+  ------------------------------------------------------------------ */
+  // Overlap check
   function doesOverlap(movingEvent, newStart, newEnd, calendar) {
     const allEvents = calendar.getEvents();
     for (const ev of allEvents) {
@@ -162,9 +181,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const evEnd   = (ev.end || ev.start)?.getTime();
       const newStartMs = newStart.getTime();
       const newEndMs   = newEnd.getTime();
-      // Overlap condition
       if (evStart < newEndMs && evEnd > newStartMs) {
-        // Also check if they belong to the same calendarId
         if (sameRoomSource(movingEvent, ev)) {
           return true;
         }
@@ -173,13 +190,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     return false;
   }
   function sameRoomSource(evA, evB) {
-    const srcA = evA.source?.url || '';
-    const srcB = evB.source?.url || '';
-    const matchA = srcA.match(/calendarId=([^&]+)/);
-    const matchB = srcB.match(/calendarId=([^&]+)/);
-    return (matchA && matchB && matchA[1] === matchB[1]);
+    const srcIdA = evA.source?.id || '';
+    const srcIdB = evB.source?.id || '';
+    return (srcIdA === srcIdB);
   }
 
+  // Create the calendar
   const multiCalendar = new FullCalendar.Calendar(multiCalendarEl, {
     timeZone: 'local',
     height: 'auto',
@@ -198,7 +214,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     editable: true,
     eventResizableFromStart: true,
 
-    // The user can select a range to create an event => goes to first-checked room
     selectAllow: (selectInfo) => {
       if (selectInfo.start < new Date()) {
         return false;
@@ -210,10 +225,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       const firstRoomId = getFirstCheckedRoomId();
       if (!firstRoomId) return;
 
-      // Overlap check
+      // Check overlap
       const dummyEvent = { 
         id: 'dummy', 
-        source: { url: `/api/room_data?calendarId=${encodeURIComponent(firstRoomId)}` }
+        source: { id: firstRoomId }
       };
       if (doesOverlap(dummyEvent, info.start, info.end, multiCalendar)) {
         showToast('Error', 'Time slot overlaps another event in that room.');
@@ -237,7 +252,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       // Overlap check
       const dummyEvent = { 
         id: 'dummy', 
-        source: { url: `/api/room_data?calendarId=${encodeURIComponent(firstRoomId)}` }
+        source: { id: firstRoomId }
       };
       if (doesOverlap(dummyEvent, start, end, multiCalendar)) {
         showToast('Error', 'Time slot overlaps another event in that room.');
@@ -252,59 +267,59 @@ document.addEventListener('DOMContentLoaded', async () => {
     },
 
     eventClick: (clickInfo) => {
-      const source = clickInfo.event.source;
-      const rawUrl = source?.url || '';
-      const match  = rawUrl.match(/calendarId=([^&]+)/);
-      const roomId = match ? decodeURIComponent(match[1]) : null;
-      openViewEventModal(clickInfo.event, roomId);
+      const calendarId = clickInfo.event.source?.id || null;
+      openViewEventModal(clickInfo.event, calendarId);
     },
 
-    eventDrop: async (info) => {
-      if (!confirm("Move this event?")) {
-        info.revert();
-        return;
-      }
-      const event    = info.event;
+    // "Optimistic" eventDrop => short callback, big logic in setTimeout
+    eventDrop: (info) => {
+      const event = info.event;
       const newStart = event.start;
       const newEnd   = event.end || new Date(newStart.getTime() + 30*60*1000);
 
+      // Overlap check
       if (doesOverlap(event, newStart, newEnd, multiCalendar)) {
         showToast('Error', "This move overlaps another event in the same room. Reverting.");
         info.revert();
         return;
       }
 
-      const roomId = getCalendarIdFromEvent(event);
+      // Pull the "roomId" from the event's source.id
+      const roomId = event.source?.id;
       if (!roomId) {
         info.revert();
         return;
       }
 
       showSpinner();
-      try {
-        await updateEvent({
-          calendarId: roomId,
-          eventId: event.id,
-          title: event.title,
-          start: newStart.toISOString(),
-          end:   newEnd.toISOString(),
-          participants: event.extendedProps.attendees || []
-        });
-        showToast("Updated", "Event was successfully moved.");
-        event.source?.refetch();
-      } catch (err) {
-        showError(`Failed to move event: ${err.message}`);
-        info.revert();
-      } finally {
-        hideSpinner();
-      }
+
+      // Defer heavy logic so we return quickly
+      setTimeout(async () => {
+        try {
+          await updateEvent({
+            calendarId: roomId,
+            eventId: event.id,
+            title: event.title,
+            start: newStart.toISOString(),
+            end:   newEnd.toISOString(),
+            participants: event.extendedProps.attendees || []
+          });
+          showToast("Updated", "Event was successfully moved.");
+
+          // Re-sync local data
+          await resyncSingleRoom(roomId);
+          multiCalendar.getEventSourceById(roomId)?.refetch();
+        } catch (err) {
+          console.error("Failed to move event:", err);
+          showError(`Failed to move event: ${err.message}`);
+          info.revert();
+        } finally {
+          hideSpinner();
+        }
+      }, 0);
     },
 
-    eventResize: async (info) => {
-      if (!confirm("Resize this event?")) {
-        info.revert();
-        return;
-      }
+    eventResize: (info) => {
       const event    = info.event;
       const newStart = event.start;
       const newEnd   = event.end;
@@ -320,44 +335,51 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
 
-      const roomId = getCalendarIdFromEvent(event);
+      const roomId = event.source?.id;
       if (!roomId) {
         info.revert();
         return;
       }
 
       showSpinner();
-      try {
-        await updateEvent({
-          calendarId: roomId,
-          eventId: event.id,
-          title: event.title,
-          start: newStart.toISOString(),
-          end: newEnd.toISOString(),
-          participants: event.extendedProps.attendees || []
-        });
-        showToast("Updated", "Event was resized successfully.");
-        event.source?.refetch();
-      } catch (err) {
-        showError(`Failed to resize event: ${err.message}`);
-        info.revert();
-      } finally {
-        hideSpinner();
-      }
+      setTimeout(async () => {
+        try {
+          await updateEvent({
+            calendarId: roomId,
+            eventId: event.id,
+            title: event.title,
+            start: newStart.toISOString(),
+            end:   newEnd.toISOString(),
+            participants: event.extendedProps.attendees || []
+          });
+          showToast("Updated", "Event was resized successfully.");
+          await resyncSingleRoom(roomId);
+          multiCalendar.getEventSourceById(roomId)?.refetch();
+        } catch (err) {
+          console.error("Failed to resize event:", err);
+          showError(`Failed to resize event: ${err.message}`);
+          info.revert();
+        } finally {
+          hideSpinner();
+        }
+      }, 0);
     },
 
     eventSources: []
   });
   multiCalendar.render();
 
-  function getCalendarIdFromEvent(ev) {
-    const srcUrl = ev.source?.url || '';
-    const match = srcUrl.match(/calendarId=([^&]+)/);
-    return match ? decodeURIComponent(match[1]) : null;
+  async function resyncSingleRoom(roomId) {
+    try {
+      const resp = await fetchJSON(`/api/room_data?calendarId=${encodeURIComponent(roomId)}`);
+      allEventsMap[roomId] = resp.events || [];
+    } catch (err) {
+      showError(`Failed to re-sync room: ${roomId}. ${err.message}`);
+    }
   }
 
   /* ------------------------------------------------------------------
-     8) Build color-coded checkboxes & enforce default selection
+     9) Build color-coded checkboxes + batchRendering
   ------------------------------------------------------------------ */
   let storedSelections = [];
   try {
@@ -388,7 +410,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     chk.id   = `roomChk_${room.id}`;
     chk.value= room.id;
 
-    // Check if storedSelections has this room
     if (storedSelections.includes(room.id)) {
       chk.checked = true;
     }
@@ -397,9 +418,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     lbl.setAttribute('for', `roomChk_${room.id}`);
     lbl.textContent = room.summary;
 
-    // Ensure at least one remains checked
     chk.addEventListener('change', (e) => {
-      // If user tries to uncheck and it's the last one, revert & show toast
+      // If user tries to uncheck and it's the last one, revert
       if (!e.target.checked) {
         const stillChecked = Array.from(roomsCheckboxBar.querySelectorAll('input[type="checkbox"]'))
           .filter(c => c.checked && c !== e.target);
@@ -417,7 +437,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     roomsCheckboxBar.appendChild(wrapper);
   });
 
-  // Functions called after we have multiCalendar
   function onRoomsCheckboxChange() {
     const checkboxes = roomsCheckboxBar.querySelectorAll('input[type="checkbox"]');
     const selectedIds = Array.from(checkboxes)
@@ -426,19 +445,20 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     localStorage.setItem('selectedRoomIds', JSON.stringify(selectedIds));
 
-    // Clear all event sources & re-add them
-    multiCalendar.removeAllEventSources();
-    selectedIds.forEach((roomId) => {
-      const color = roomColors[roomId] || '#333';
-      multiCalendar.addEventSource({
-        url: `/api/room_data?calendarId=${encodeURIComponent(roomId)}`,
-        method: 'GET',
-        success: (data) => data.events || [],
-        failure: (err) => {
-          showError(`Failed to load events for room ${roomId}: ${err.message}`);
-        },
-        color: color,
-        textColor: '#fff'
+    multiCalendar.batchRendering(() => {
+      multiCalendar.removeAllEventSources();
+
+      selectedIds.forEach((roomId) => {
+        multiCalendar.addEventSource({
+          id: roomId, // <-- explicit ID
+          events: function(fetchInfo, successCallback, failureCallback) {
+            // Return data from memory
+            const data = allEventsMap[roomId] || [];
+            successCallback(data);
+          },
+          color: roomColors[roomId] || '#333',
+          textColor: '#fff'
+        });
       });
     });
 
@@ -474,11 +494,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     return checked.length > 0 ? checked[0].value : null;
   }
 
-  // Now that we have multiCalendar, finalize the selection
   enforceDefaultSelection();
 
   /* ------------------------------------------------------------------
-     9) View Event Modal
+     10) View Event Modal
   ------------------------------------------------------------------ */
   let currentEventId = null;
 
@@ -563,7 +582,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       try {
         await deleteEvent({ calendarId, id: event.id });
-        event.remove();
+        // remove from local map
+        allEventsMap[calendarId] = allEventsMap[calendarId].filter(ev => ev.id !== event.id);
+        multiCalendar.getEventSourceById(calendarId)?.refetch();
+
         viewEventModal.hide();
         showToast("Deleted", "Event was successfully deleted.");
       } catch (err) {
@@ -575,7 +597,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   /* ------------------------------------------------------------------
-     10) Create/Edit Modal => Chips
+     11) Create/Edit Modal => Chips
   ------------------------------------------------------------------ */
   function openEventModal({ calendarId, eventId, title, start, end, attendees }) {
     calendarIdField.value = calendarId || '';
@@ -641,8 +663,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const participants = inviteChips.map(ch => ch.email);
 
-    // Basic checks for new events
     if (!eventId) {
+      // Creating new
       if (!startUTC || !endUTC) {
         showError('Missing start or end time.');
         return;
@@ -660,28 +682,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     showSpinner();
     try {
       if (eventId) {
-        await updateEvent({
-          calendarId,
-          eventId,
-          title,
-          start: startUTC,
-          end: endUTC,
-          participants
-        });
+        await updateEvent({ calendarId, eventId, title, start: startUTC, end: endUTC, participants });
         showToast("Updated", "Event was successfully updated.");
       } else {
-        await createEvent({
-          calendarId,
-          title,
-          start: startUTC,
-          end: endUTC,
-          participants
-        });
+        await createEvent({ calendarId, title, start: startUTC, end: endUTC, participants });
         showToast("Created", "Event was successfully created.");
       }
 
+      // Re-sync local data
+      await resyncSingleRoom(calendarId);
+      multiCalendar.getEventSourceById(calendarId)?.refetch();
       eventModal.hide();
-      multiCalendar.getEventSources().forEach(src => src.refetch());
 
     } catch (err) {
       showError(`Failed to save event: ${err.message}`);
@@ -690,9 +701,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  /* ------------------------------------------------------------------
-     11) Chips for participants
-  ------------------------------------------------------------------ */
+  /* CHIPS UI */
   let inviteChips = [];
   const chipsInput = eventGuestsInput;
 
@@ -775,7 +784,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     return null;
   }
 
-  // Basic typeahead
   let typeaheadDiv;
   chipsInput.addEventListener('input', (e) => {
     const val = e.target.value.toLowerCase().trim();
@@ -858,11 +866,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         const currentVer = lastKnownVersions[roomId] || 0;
         if (version > currentVer) {
           lastKnownVersions[roomId] = version;
-          // Refresh relevant event source
-          multiCalendar.getEventSources().forEach(src => {
-            if (src.url?.includes(roomId)) {
-              src.refetch();
-            }
+          // Re-fetch data from the server
+          resyncSingleRoom(roomId).then(() => {
+            multiCalendar.getEventSourceById(roomId)?.refetch();
           });
         }
       });
