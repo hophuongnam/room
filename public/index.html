@@ -22,7 +22,7 @@
   <!-- Single-Line Navbar -->
   <nav class="navbar navbar-expand-lg navbar-dark bg-primary fixed-top shadow" id="mainNavbar">
     <div class="container-fluid">
-      <a class="navbar-brand" href="#">Meeting Room Reservation v0.4.4</a>
+      <a class="navbar-brand" href="#">Meeting Room Reservation v0.4.5</a>
 
       <!-- This span will show the name of the single checked room if only one is checked -->
       <span id="selectedRoomNameSpan" class="navbar-text ms-3" style="display: none;"></span>
@@ -40,6 +40,11 @@
 
   <!-- Main content area -->
   <div class="content-below-navbar container-fluid">
+    <!-- ALERT FOR ORGANIZER ERROR -->
+    <div id="organizerErrorAlert" class="alert alert-danger d-none" role="alert">
+      <!-- Will be filled by inline script if needed -->
+    </div>
+
     <!-- Loading Spinner (hidden by default) -->
     <div id="loadingSpinner" class="spinner-border text-primary d-none" role="status">
       <span class="visually-hidden">Loading...</span>
@@ -76,9 +81,7 @@
         </div>
         
         <div class="modal-body">
-          <!-- NEW: Room field -->
           <p><strong>Room:</strong> <span id="viewEventRoom"></span></p>
-
           <p><strong>Start:</strong> <span id="viewEventStart"></span></p>
           <p><strong>End:</strong> <span id="viewEventEnd"></span></p>
 
@@ -113,7 +116,6 @@
     <div class="modal-dialog">
       <div class="modal-content">
         <form id="eventForm">
-          <!-- Removed bg-primary text-white so we can set it dynamically -->
           <div class="modal-header">
             <h5 class="modal-title" id="eventModalLabel">Create/Edit Event</h5>
             <button 
@@ -143,7 +145,6 @@
               <input type="text" class="form-control" id="eventTitle" required />
             </div>
 
-            <!-- Start/End times on one row -->
             <div class="row">
               <div class="col-md-6 mb-3">
                 <label for="eventStart" class="form-label">Start Time</label>
@@ -166,7 +167,6 @@
                 />
               </div>
             </div>
-
           </div>
           <div class="modal-footer">
             <button type="submit" class="btn btn-primary">Save Event</button>
@@ -188,7 +188,6 @@
       aria-live="assertive" 
       aria-atomic="true"
     >
-      <!-- Changed bg-primary to bg-secondary -->
       <div class="toast-header bg-secondary text-white">
         <strong class="me-auto" id="toastTitle"></strong>
         <button 
@@ -208,5 +207,18 @@
   <!-- Main JS must come before calendar.js -->
   <script src="main.js" defer></script>
   <script src="calendar.js" defer></script>
+
+  <!-- Inline script to show organizer error alert if needed -->
+  <script>
+    document.addEventListener('DOMContentLoaded', () => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('organizerError') === '1') {
+        const alertEl = document.getElementById('organizerErrorAlert');
+        alertEl.classList.remove('d-none');
+        alertEl.textContent = 'The organizer’s credentials are invalid. Please contact the organizer to re-authenticate with Google.';
+      }
+    });
+  </script>
+
 </body>
 </html>

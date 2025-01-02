@@ -19,6 +19,13 @@ PORT             = ENV['PORT'] ? ENV['PORT'].to_i : 3000
 SESSION_SECRET   = ENV['SESSION_SECRET'] || 'fallback_super_secure_secret_key'
 USER_OAUTH_SCOPE = ['openid','email','profile']
 
+# ---------------------------
+# NEW: Global token usable flag
+# ---------------------------
+# If this is ever set to false, it means the Organizer's
+# Google credentials are no longer valid/usable.
+$token_usable = true
+
 def user_db
   @user_db ||= SQLite3::Database.new(DB_PATH)
 end
@@ -41,6 +48,11 @@ end
 # Auth Guard
 # -------------------------------------------------
 before do
+  # If the organizer's token became invalid, block all requests
+  unless $token_usable
+    halt 403, { error: 'Organizer credentials invalid. Please re-authenticate.' }.to_json
+  end
+
   protected_paths = [
     '/api/rooms',
     '/api/room_data',
@@ -209,7 +221,6 @@ post '/notifications' do
 
   case resource_state
   when 'sync', 'exists', 'updated'
-    # puts "Push notification: calendar=#{calendar_id} changed (state=#{resource_state})."
     service = Google::Apis::CalendarV3::CalendarService.new
     service.authorization = load_organizer_credentials
 
@@ -311,7 +322,6 @@ end
 # Overlap Check
 # -------------------------------------------------
 def events_overlap?(calendar_id, start_time_utc, end_time_utc, ignore_event_id = nil)
-  # This method checks for overlap with other *original* events (excluding linked events).
   service = Google::Apis::CalendarV3::CalendarService.new
   service.authorization = load_organizer_credentials
 

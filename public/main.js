@@ -61,16 +61,32 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // Expose them globally so calendar.js can call them
-  window.showToast  = showToast;
-  window.showError  = showError;
-  window.showSpinner= showSpinner;
-  window.hideSpinner= hideSpinner;
+  window.showToast   = showToast;
+  window.showError   = showError;
+  window.showSpinner = showSpinner;
+  window.hideSpinner = hideSpinner;
 
   /* ------------------------------------------------------------------
      3) Shared Utilities
   ------------------------------------------------------------------ */
   async function fetchJSON(url, options = {}) {
     const res = await fetch(url, options);
+
+    // Check for organizer token error => 403
+    if (res.status === 403) {
+      let errData;
+      try {
+        errData = await res.json();
+      } catch (e) {
+        errData = { error: 'Unknown error' };
+      }
+      if (errData.error === 'Organizer credentials invalid. Please re-authenticate.') {
+        // Force logout => redirect with organizerError=1
+        window.location.href = '/logout?organizerError=1';
+        return;
+      }
+    }
+
     if (!res.ok) {
       const text = await res.text();
       throw new Error(`(${res.status}) ${text}`);
@@ -87,8 +103,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   // Expose globally
-  window.fetchJSON              = fetchJSON;
-  window.toLocalDateTimeInput   = toLocalDateTimeInput;
+  window.fetchJSON            = fetchJSON;
+  window.toLocalDateTimeInput = toLocalDateTimeInput;
 
   /* ------------------------------------------------------------------
      4) Login/Logout
@@ -193,7 +209,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   /* ------------------------------------------------------------------
      9) Initialize Color-Coded Room Checkboxes
-       (The calendar init & logic is in calendar.js)
   ------------------------------------------------------------------ */
   const colorPalette = [
     '#F16B61', '#3B76C2', '#EC8670', '#009688',
@@ -251,7 +266,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     wrapper.appendChild(lbl);
     roomsCheckboxBar.appendChild(wrapper);
 
-    // Expose color mapping globally
     window.roomColors = roomColors;
   });
 
@@ -267,7 +281,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function applyCheckedRoomSources(selectedIds) {
-    // Make sure multiCalendar is set up
     if (!window.multiCalendar) return;
 
     window.multiCalendar.batchRendering(() => {
@@ -312,11 +325,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   /* ------------------------------------------------------------------
      10) Create/Edit Modal => Chips
-       (We do the logic for inviting participants here)
   ------------------------------------------------------------------ */
   let inviteChips = [];
-
-  // Expose so calendar.js can open the modal with prefilled data
   window.inviteChips = inviteChips;
 
   function clearChipsUI() {
@@ -439,7 +449,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     renderChipsUI();
   }
 
-  // Expose these so calendar.js can manipulate the create/edit modal
   window.clearChipsUI    = clearChipsUI;
   window.renderChipsUI   = renderChipsUI;
   window.addChip         = addChip;
@@ -447,7 +456,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   /* ------------------------------------------------------------------
      11) Polling for Room & User Updates
-       (The re-sync logic for the calendar is in calendar.js)
   ------------------------------------------------------------------ */
   const lastKnownVersions = {};
   setInterval(checkRoomUpdates, 30000);
@@ -477,15 +485,13 @@ document.addEventListener('DOMContentLoaded', async () => {
         lastKnownUserVersion = serverVer;
         const allData = await fetchJSON('/api/all_users');
         prefetchedUsers = allData.users || [];
-        window.prefetchedUsers = prefetchedUsers; // update global
+        window.prefetchedUsers = prefetchedUsers;
       }
     } catch (err) {
       showError(`Failed to check user updates: ${err.message}`);
     }
   }
 
-  // We'll define resyncSingleRoom in calendar.js, 
-  // but reference it here so polling can call it
   window.resyncSingleRoom = async function(roomId) {
     // Placeholder, real logic is in calendar.js
   };
@@ -493,6 +499,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   /* ------------------------------------------------------------------
      12) Initialize the calendar first, THEN enforce default selection
   ------------------------------------------------------------------ */
-  initCalendar();            // <-- Initialize FullCalendar first
-  enforceDefaultSelection(); // <-- Then set checkboxes
+  initCalendar();            
+  enforceDefaultSelection(); 
 });

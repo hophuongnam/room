@@ -19,9 +19,6 @@ $calendar_watch_map  = {}
 $room_update_tracker = Hash.new(0)
 $rooms_data          = {}
 
-# -------------------------------------------------
-# Database
-# -------------------------------------------------
 def initialize_database
   db = SQLite3::Database.new(DB_PATH)
   db.execute <<-SQL
@@ -54,35 +51,38 @@ def load_organizer_credentials
                   end
 
   credentials = Google::Auth::UserRefreshCredentials.new(
-    client_id: credentials_hash['client_id'],
+    client_id:     credentials_hash['client_id'],
     client_secret: credentials_hash['client_secret'],
-    scope: credentials_hash['scope'],
-    access_token: credentials_hash['access_token'],
+    scope:         credentials_hash['scope'],
+    access_token:  credentials_hash['access_token'],
     refresh_token: credentials_hash['refresh_token'],
-    expires_at: parsed_expiry,
-    redirect_uri: credentials_hash['redirect_uri'] || REDIRECT_URI
+    expires_at:    parsed_expiry,
+    redirect_uri:  credentials_hash['redirect_uri'] || REDIRECT_URI
   )
 
   if credentials.expired?
-    credentials.refresh!
-    db.execute("UPDATE users SET credentials = ? WHERE email = ?", [credentials.to_json, email])
+    begin
+      credentials.refresh!
+      db.execute("UPDATE users SET credentials = ? WHERE email = ?", [credentials.to_json, email])
+      # If refresh succeeds, mark token usable again
+      $token_usable = true
+    rescue => e
+      # If refreshing fails, mark token as unusable
+      $token_usable = false
+      puts "Error refreshing token for organizer: #{e.message}"
+      halt 500, { error: 'Organizer credentials invalid. Please re-authenticate.' }.to_json
+    end
   end
 
   credentials
 end
 
-# -------------------------------------------------
-# Parse room role (super / sub / normal) from description
-# -------------------------------------------------
 def parse_room_role_and_links(cal)
   desc = cal.description.to_s
   role = 'normal'
   sub_rooms = []
   super_room = nil
 
-  # We assume the description might look like:
-  #   "role: super\nsub: Room B\nsub: Room C"
-  # or "role: sub\nsuper: Room A"
   desc.lines.each do |line|
     line.strip!
     if line.start_with?('role:')
@@ -98,14 +98,11 @@ def parse_room_role_and_links(cal)
 
   {
     role:       role,
-    sub_rooms:  sub_rooms,     # array of names
-    super_room: super_room     # name string
+    sub_rooms:  sub_rooms,
+    super_room: super_room
   }
 end
 
-# -------------------------------------------------
-# Fetch events (7 days in the past onward)
-# -------------------------------------------------
 def fetch_events_for_calendar(calendar_id, service = nil)
   service ||= begin
     s = Google::Apis::CalendarV3::CalendarService.new
@@ -155,10 +152,6 @@ def determine_linked_event_color(current_calendar_id, original_calendar_id)
   '#ff0000'
 end
 
-# -------------------------------------------------
-# Called once on startup, loads all "type:room" calendars
-# Also sets up watch channels for push notifications
-# -------------------------------------------------
 def load_and_watch_all_rooms
   puts "Loading room calendars and setting up watches..."
   credentials = load_organizer_credentials
@@ -191,9 +184,6 @@ def load_and_watch_all_rooms
   puts "Finished loading room calendars."
 end
 
-# -------------------------------------------------
-# Set up push notification watch for a calendar
-# -------------------------------------------------
 def setup_watch_for_calendar(calendar_id, service = nil)
   service ||= begin
     s = Google::Apis::CalendarV3::CalendarService.new
@@ -217,9 +207,6 @@ def setup_watch_for_calendar(calendar_id, service = nil)
   end
 end
 
-# -------------------------------------------------
-# Refresh watch channels for all known room calendars
-# -------------------------------------------------
 def refresh_room_calendars
   puts 'Refreshing room calendars...'
   credentials = load_organizer_credentials
