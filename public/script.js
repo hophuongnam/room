@@ -284,7 +284,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         return;
       }
 
-      // Pull the "roomId" from the event's source.id
       const roomId = event.source?.id;
       if (!roomId) {
         info.revert();
@@ -306,7 +305,6 @@ document.addEventListener('DOMContentLoaded', async () => {
           });
           showToast("Updated", "Event was successfully moved.");
 
-          // Re-sync local data
           await resyncSingleRoom(roomId);
           multiCalendar.getEventSourceById(roomId)?.refetch();
         } catch (err) {
@@ -450,9 +448,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       selectedIds.forEach((roomId) => {
         multiCalendar.addEventSource({
-          id: roomId, // <-- explicit ID
+          id: roomId,
           events: function(fetchInfo, successCallback, failureCallback) {
-            // Return data from memory
             const data = allEventsMap[roomId] || [];
             successCallback(data);
           },
@@ -514,6 +511,12 @@ document.addEventListener('DOMContentLoaded', async () => {
   function openViewEventModal(event, calendarId) {
     currentEventId = event.id;
 
+    // Dynamically set the modal header color
+    const roomColor = roomColors[calendarId] || '#0d6efd';
+    const modalHeader = document.querySelector('#viewEventModal .modal-header');
+    modalHeader.classList.add('text-white');
+    modalHeader.style.backgroundColor = roomColor;
+
     viewEventTitle.textContent = event.title || 'Untitled';
 
     const startTime = event.start ? new Date(event.start) : null;
@@ -553,6 +556,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (isLinked) {
       canEditOrDelete = false;
     } else {
+      // If the currentUser isn't the organizer or an attendee, disallow
       if (!rawAttendees.includes(currentUserEmail) && rawOrganizer !== currentUserEmail) {
         canEditOrDelete = false;
       }
@@ -582,7 +586,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
       try {
         await deleteEvent({ calendarId, id: event.id });
-        // remove from local map
         allEventsMap[calendarId] = allEventsMap[calendarId].filter(ev => ev.id !== event.id);
         multiCalendar.getEventSourceById(calendarId)?.refetch();
 
@@ -600,6 +603,12 @@ document.addEventListener('DOMContentLoaded', async () => {
      11) Create/Edit Modal => Chips
   ------------------------------------------------------------------ */
   function openEventModal({ calendarId, eventId, title, start, end, attendees }) {
+    // Dynamically set the modal header color
+    const roomColor = roomColors[calendarId] || '#0d6efd';
+    const modalHeader = document.querySelector('#eventModal .modal-header');
+    modalHeader.classList.add('text-white');
+    modalHeader.style.backgroundColor = roomColor;
+
     calendarIdField.value = calendarId || '';
     eventIdField.value    = eventId    || '';
     eventTitleField.value = title      || '';
@@ -614,6 +623,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     } else {
       eventEndField.value = '';
     }
+
+    // Always enable editing start/end
+    eventStartField.disabled = false;
+    eventEndField.disabled   = false;
 
     inviteChips = [];
     clearChipsUI();
@@ -630,15 +643,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
       });
       renderChipsUI();
-    }
-
-    // If updating existing event => do NOT allow time change in modal
-    if (eventId) {
-      eventStartField.disabled = true;
-      eventEndField.disabled   = true;
-    } else {
-      eventStartField.disabled = false;
-      eventEndField.disabled   = false;
     }
 
     eventModal.show();
@@ -663,33 +667,31 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const participants = inviteChips.map(ch => ch.email);
 
-    if (!eventId) {
-      // Creating new
-      if (!startUTC || !endUTC) {
-        showError('Missing start or end time.');
-        return;
-      }
-      if (localStart < new Date()) {
-        showError('Cannot create an event in the past.');
-        return;
-      }
-      if (localEnd <= localStart) {
-        showError('End time must be after start time.');
-        return;
-      }
+    if (!startUTC || !endUTC) {
+      showError('Missing start or end time.');
+      return;
+    }
+    if (localStart < new Date()) {
+      showError('Cannot create or update an event in the past.');
+      return;
+    }
+    if (localEnd <= localStart) {
+      showError('End time must be after start time.');
+      return;
     }
 
     showSpinner();
     try {
       if (eventId) {
+        // Updating existing event
         await updateEvent({ calendarId, eventId, title, start: startUTC, end: endUTC, participants });
         showToast("Updated", "Event was successfully updated.");
       } else {
+        // Creating new
         await createEvent({ calendarId, title, start: startUTC, end: endUTC, participants });
         showToast("Created", "Event was successfully created.");
       }
 
-      // Re-sync local data
       await resyncSingleRoom(calendarId);
       multiCalendar.getEventSourceById(calendarId)?.refetch();
       eventModal.hide();

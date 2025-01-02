@@ -209,7 +209,7 @@ post '/notifications' do
 
   case resource_state
   when 'sync', 'exists', 'updated'
-    puts "Push notification: calendar=#{calendar_id} changed (state=#{resource_state})."
+    # puts "Push notification: calendar=#{calendar_id} changed (state=#{resource_state})."
     service = Google::Apis::CalendarV3::CalendarService.new
     service.authorization = load_organizer_credentials
 

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+\<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -62,7 +62,8 @@
     <div class="modal-dialog">
       <div class="modal-content">
         
-        <div class="modal-header bg-primary text-white">
+        <!-- Removed bg-primary text-white so we can set it dynamically -->
+        <div class="modal-header">
           <h5 class="modal-title" id="viewEventModalLabel">
             <span id="viewEventTitle"></span>
           </h5>
@@ -109,7 +110,8 @@
     <div class="modal-dialog">
       <div class="modal-content">
         <form id="eventForm">
-          <div class="modal-header bg-primary text-white">
+          <!-- Removed bg-primary text-white so we can set it dynamically -->
+          <div class="modal-header">
             <h5 class="modal-title" id="eventModalLabel">Create/Edit Event</h5>
             <button 
               type="button" 
@@ -172,7 +174,8 @@
       aria-live="assertive" 
       aria-atomic="true"
     >
-      <div class="toast-header bg-primary text-white">
+      <!-- Changed bg-primary to bg-secondary -->
+      <div class="toast-header bg-secondary text-white">
         <strong class="me-auto" id="toastTitle"></strong>
         <button 
           type="button" 
