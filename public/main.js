@@ -351,7 +351,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       });
 
       chipEl.appendChild(removeBtn);
-      eventGuestsContainer.insertBefore(chipEl, eventGuestsInput);
+      // eventGuestsContainer.insertBefore(chipEl, eventGuestsInput);
+      eventGuestsContainer.appendChild(chipEl);
     });
   }
 

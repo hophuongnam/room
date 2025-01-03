@@ -62,7 +62,7 @@
     </div>
   </div>
 
-  <!-- VIEW EVENT MODAL (unchanged) -->
+  <!-- VIEW EVENT MODAL -->
   <div 
     class="modal fade" 
     id="viewEventModal" 
@@ -70,7 +70,12 @@
     aria-labelledby="viewEventModalLabel" 
     aria-hidden="true"
   >
-    <div class="modal-dialog modal-dialog-scrollable">
+    <!-- Note: to “fit content better,” we remove fixed max-width
+         from the prior version. We'll just add 'width:auto; max-width:700px;'
+         or remove it entirely. Let's do:
+         style="width:auto; max-width:700px;"
+         so it's a bit narrower but still flexible. -->
+    <div class="modal-dialog modal-dialog-scrollable" style="width:auto; max-width:400px;">
       <div class="modal-content">
 
         <!-- Icon bar on its own line, icons right-aligned -->
@@ -106,7 +111,7 @@
           </div>
         </div>
 
-        <!-- Start/End Time row: single .event-section, but two lines for Start & End -->
+        <!-- Start/End Time row -->
         <div class="event-section row">
           <!-- Icon column -->
           <div class="col-auto d-flex align-items-center">
@@ -120,7 +125,6 @@
               id="viewEventStartTime" 
               class="event-date-time mb-2"
             >
-              <!-- JS to fill in -->
             </div>
             
             <!-- End Time -->
@@ -128,18 +132,27 @@
               id="viewEventEndTime" 
               class="event-date-time"
             >
-              <!-- JS to fill in -->
             </div>
           </div>
         </div>
 
-        <!-- Guest row: icon on left, multiple emails on right, using a Bootstrap icon for emails -->
+        <!-- Attendees row: icon on left, multiple emails on right -->
         <div class="event-section row">
           <div class="col-auto d-flex align-items-center">
             <i class="bi bi-people"></i>
           </div>
           <div class="col" id="viewEventAttendeesList">
             <!-- JS-generated attendee list -->
+          </div>
+        </div>
+
+        <!-- DESCRIPTION row (conditionally shown) -->
+        <div class="event-section row d-none" id="viewEventDescriptionRow">
+          <div class="col-auto d-flex align-items-center">
+            <i class="bi bi-file-text"></i>
+          </div>
+          <div class="col d-flex align-items-center" id="viewEventDescription">
+            <!-- JS to fill if there's a description -->
           </div>
         </div>
         
@@ -155,6 +168,7 @@
     aria-labelledby="eventModalLabel" 
     aria-hidden="true"
   >
+    <!-- Revert to original .modal-dialog.modal-xl with no width style. -->
     <div class="modal-dialog modal-xl">
       <form id="eventForm">
         <!-- We omit a .modal-header entirely -->
@@ -173,7 +187,7 @@
               aria-label="Event Name"
             />
             <div class="header-actions">
-              <!-- Use type="submit" to trigger the form submission in your JS -->
+              <!-- Use type="submit" to trigger the form submission -->
               <button class="btn btn-primary" type="submit" id="saveEventBtn">
                 Save
               </button>
@@ -269,7 +283,11 @@
                   <!-- Description -->
                   <div class="mb-3">
                     <label class="form-label">Add description</label>
-                    <textarea class="form-control" rows="3"></textarea>
+                    <textarea 
+                      class="form-control" 
+                      rows="3" 
+                      id="eventDescription"
+                    ></textarea>
                   </div>
                 </div>
 
@@ -291,7 +309,6 @@
             <div class="col-md-4">
               <h6 class="section-title">Attendees</h6>
               <div class="d-flex mb-2">
-                <!-- ID matches your JS “chips” logic -->
                 <input
                   type="text"
                   class="form-control me-2"
@@ -304,7 +321,7 @@
               </div>
               <!-- The container where “chips” are rendered -->
               <div id="eventGuestsContainer" class="chips-container">
-                <!-- Your JS will dynamically insert chips here -->
+                <!-- JS will dynamically insert chips -->
               </div>
             </div>
           </div>

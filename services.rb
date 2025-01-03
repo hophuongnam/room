@@ -1,3 +1,4 @@
+# services.rb
 require 'dotenv/load'
 # Force the environment to UTC, ignoring system timezone
 ENV['TZ'] = 'UTC'
@@ -140,7 +141,8 @@ def fetch_events_for_calendar(calendar_id, service = nil)
         organizer: priv&.[]('creator_email') || event.organizer&.email,
         is_linked: is_linked,
         original_calendar_id: orig_cal,
-        original_event_id:    orig_ev_id
+        original_event_id:    orig_ev_id,
+        description: event.description || ""
       },
       borderColor: border_color
     }

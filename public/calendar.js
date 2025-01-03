@@ -36,12 +36,11 @@ function initCalendar() {
     },
     selectable: true,
     selectMirror: true,
-    unselectAuto: false, // keep highlight until we manually unselect
+    unselectAuto: false,
     editable: true,
     eventResizableFromStart: true,
 
     selectAllow: (selectInfo) => {
-      // Prevent creating events in the past
       if (selectInfo.start < new Date()) {
         return false;
       }
@@ -52,11 +51,9 @@ function initCalendar() {
       const firstRoomId = getFirstCheckedRoomId();
       if (!firstRoomId) return;
 
-      // Color highlight for selection
       const color = roomColors[firstRoomId] || '#0d6efd';
       setTimeout(() => {
-        const highlights = document.querySelectorAll('.fc-highlight');
-        highlights.forEach((el) => {
+        document.querySelectorAll('.fc-highlight').forEach((el) => {
           el.style.backgroundColor = color;
         });
       }, 0);
@@ -72,7 +69,6 @@ function initCalendar() {
         return;
       }
 
-      // Open create event modal
       openEventModal({
         calendarId: firstRoomId,
         start: info.start,
@@ -87,13 +83,11 @@ function initCalendar() {
       const firstRoomId = getFirstCheckedRoomId();
       if (!firstRoomId) return;
 
-      // Block clicks in the past
       if (start < new Date()) {
         showToast('Error', 'Cannot create an event in the past.');
         return;
       }
 
-      // Overlap check
       const dummyEvent = { 
         id: 'dummy', 
         source: { id: firstRoomId }
@@ -103,7 +97,6 @@ function initCalendar() {
         return;
       }
 
-      // Open create event modal
       openEventModal({
         calendarId: firstRoomId,
         start,
@@ -123,7 +116,6 @@ function initCalendar() {
       const newStart= event.start;
       const newEnd  = event.end || new Date(newStart.getTime() + 30*60*1000);
 
-      // Overlap check
       if (doesOverlap(event, newStart, newEnd, window.multiCalendar)) {
         showToast('Error', "This move overlaps another event in the same room. Reverting.");
         info.revert();
@@ -145,7 +137,8 @@ function initCalendar() {
             title: event.title,
             start: newStart.toISOString(),
             end:   newEnd.toISOString(),
-            participants: event.extendedProps.attendees || []
+            participants: event.extendedProps.attendees || [],
+            description: event.extendedProps.description || ""
           });
           showToast("Updated", "Event was successfully moved.");
           await resyncSingleRoom(roomId);
@@ -170,7 +163,6 @@ function initCalendar() {
         return;
       }
 
-      // Overlap check
       if (doesOverlap(event, newStart, newEnd, window.multiCalendar)) {
         showToast('Error', "Resized event overlaps another event in the same room. Reverting.");
         info.revert();
@@ -192,7 +184,8 @@ function initCalendar() {
             title: event.title,
             start: newStart.toISOString(),
             end:   newEnd.toISOString(),
-            participants: event.extendedProps.attendees || []
+            participants: event.extendedProps.attendees || [],
+            description: event.extendedProps.description || ""
           });
           showToast("Updated", "Event was resized successfully.");
           await resyncSingleRoom(roomId);
@@ -212,7 +205,6 @@ function initCalendar() {
 
   window.multiCalendar.render();
 
-  // If user closes the Create/Edit modal, unselect highlight
   const eventModalEl = document.getElementById('eventModal');
   if (eventModalEl) {
     eventModalEl.addEventListener('hide.bs.modal', () => {
@@ -220,7 +212,7 @@ function initCalendar() {
     });
   }
 
-  // Overlap check helper
+  /* Overlap check helper */
   function doesOverlap(movingEvent, newStart, newEnd, calendar) {
     const allEvents = calendar.getEvents();
     const newStartMs = newStart.getTime();
@@ -253,7 +245,6 @@ function initCalendar() {
     return checked.length > 0 ? checked[0].value : null;
   }
 
-  // Return all checked room IDs
   function getCheckedRoomIds() {
     const roomsCheckboxBar = document.getElementById('roomsCheckboxBar');
     if (!roomsCheckboxBar) return [];
@@ -267,24 +258,20 @@ function initCalendar() {
      View Event Modal
   ------------------------------------------------------------------ */
   window.openViewEventModal = function(event, calendarId) {
-    // Grab references to the DOM elements in the new View Event Modal
     const viewEventModalEl      = document.getElementById('viewEventModal');
     const viewEventTitleEl      = document.getElementById('viewEventTitle');
     const viewEventRoomEl       = document.getElementById('viewEventRoom');
     const viewEventAttendeesEl  = document.getElementById('viewEventAttendeesList');
     const viewEventEditBtn      = document.getElementById('viewEventEditBtn');
     const viewEventDeleteBtn    = document.getElementById('viewEventDeleteBtn');
-
-    // Start/End Time in the same row
     const viewEventStartTimeEl  = document.getElementById('viewEventStartTime');
     const viewEventEndTimeEl    = document.getElementById('viewEventEndTime');
-
-    // Optional color circle
     const colorCircleEl         = viewEventModalEl.querySelector('.color-circle');
+    const viewEventDescriptionRow = document.getElementById('viewEventDescriptionRow');
+    const viewEventDescriptionEl  = document.getElementById('viewEventDescription');
 
     if (!calendarId) return;
 
-    // Find the room
     const foundRoom = rooms.find(r => r.id === calendarId);
     const roomName  = foundRoom ? foundRoom.summary : "Unknown Room";
     const roomColor = roomColors[calendarId] || '#0d6efd';
@@ -310,8 +297,7 @@ function initCalendar() {
 
     // Attendees
     const rawAttendees = event.extendedProps?.attendees || event.attendees?.map(a => a.email) || [];
-    viewEventAttendeesEl.innerHTML = ''; // Clear old items
-
+    viewEventAttendeesEl.innerHTML = '';
     rawAttendees.forEach(email => {
       const rowDiv = document.createElement('div');
       rowDiv.className = 'd-flex align-items-center gap-2 mb-2';
@@ -327,16 +313,25 @@ function initCalendar() {
       viewEventAttendeesEl.appendChild(rowDiv);
     });
 
+    // Description
+    const description = event.extendedProps?.description || '';
+    if (description) {
+      viewEventDescriptionEl.textContent = description;
+      viewEventDescriptionRow.classList.remove('d-none');
+    } else {
+      // Hide row if no description
+      viewEventDescriptionEl.textContent = '';
+      viewEventDescriptionRow.classList.add('d-none');
+    }
+
     // Determine if user can edit/delete
-    const isLinked     = (event.extendedProps?.is_linked === 'true');
-    const creatorEmail = event.extendedProps?.creator_email;
+    const isLinked     = event.extendedProps?.is_linked === 'true';
+    const creatorEmail = event.extendedProps?.organizer;
     let canEditOrDelete = true;
 
-    // Linked events can't be edited directly
     if (isLinked) {
       canEditOrDelete = false;
     } else {
-      // If user is neither organizer nor attendee
       if (!rawAttendees.includes(currentUserEmail) && creatorEmail !== currentUserEmail) {
         canEditOrDelete = false;
       }
@@ -354,7 +349,8 @@ function initCalendar() {
         title: event.title,
         start: event.start,
         end: event.end,
-        attendees: rawAttendees
+        attendees: rawAttendees,
+        description
       });
 
       const modalInstance = bootstrap.Modal.getInstance(viewEventModalEl);
@@ -382,14 +378,14 @@ function initCalendar() {
     };
 
     // Show modal
-    const bsModal = new bootstrap.Modal(document.getElementById('viewEventModal'));
+    const bsModal = new bootstrap.Modal(viewEventModalEl);
     bsModal.show();
   };
 
   /* ------------------------------------------------------------------
      Create/Edit Modal
   ------------------------------------------------------------------ */
-  function openEventModal({ calendarId, eventId, title, start, end, attendees }) {
+  function openEventModal({ calendarId, eventId, title, start, end, attendees, description }) {
     const {
       eventModal,
       calendarIdField,
@@ -399,11 +395,11 @@ function initCalendar() {
       eventEndField
     } = window;
 
-    // Grab references
-    const eventRoomSelect  = document.getElementById('eventRoomSelect');
-    const roomColorSquare  = document.getElementById('roomColorSquare');
+    const eventRoomSelect       = document.getElementById('eventRoomSelect');
+    const roomColorSquare       = document.getElementById('roomColorSquare');
+    const eventDescriptionField = document.getElementById('eventDescription');
 
-    // Clear any old <option>
+    // Clear old <option>s
     eventRoomSelect.innerHTML = '';
 
     // Decide which room is selected
@@ -415,7 +411,7 @@ function initCalendar() {
         : (rooms.length > 0 ? rooms[0].id : null);
     }
 
-    // Populate <select> with each room
+    // Populate <select>
     rooms.forEach((room) => {
       const option = document.createElement('option');
       option.value = room.id;
@@ -426,16 +422,12 @@ function initCalendar() {
       eventRoomSelect.appendChild(option);
     });
 
-    // Function to update the color square
     function setSquareColor(calId) {
       const c = roomColors[calId] || '#666';
       roomColorSquare.style.backgroundColor = c;
     }
-
-    // Initially set the square color
     setSquareColor(defaultCalId);
 
-    // If user changes selection, update color
     eventRoomSelect.addEventListener('change', () => {
       setSquareColor(eventRoomSelect.value);
     });
@@ -445,7 +437,6 @@ function initCalendar() {
     eventIdField.value    = eventId      || '';
     eventTitleField.value = title        || '';
 
-    // Start/end
     if (start) {
       eventStartField.value = window.toLocalDateTimeInput(new Date(start));
     } else {
@@ -477,13 +468,16 @@ function initCalendar() {
       window.renderChipsUI();
     }
 
-    // Show the modal
+    // Description
+    eventDescriptionField.value = description || '';
+
+    // Show modal
     eventModal.show();
   }
 
   window.openEventModal = openEventModal;
 
-  // Save: create or update event
+  // Save (create/update)
   eventForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const {
@@ -495,17 +489,17 @@ function initCalendar() {
       inviteChips
     } = window;
 
-    // whichever room is selected
-    const eventRoomSelect = document.getElementById('eventRoomSelect');
-    const chosenCalendarId = eventRoomSelect.value;
-
-    const eventId    = eventIdField.value;
-    const title      = eventTitleField.value.trim();
-    const localStart = new Date(eventStartField.value);
-    const localEnd   = new Date(eventEndField.value);
-    const startUTC   = localStart.toISOString();
-    const endUTC     = localEnd.toISOString();
-    const participants = inviteChips.map(ch => ch.email);
+    const eventRoomSelect       = document.getElementById('eventRoomSelect');
+    const chosenCalendarId      = eventRoomSelect.value;
+    const eventId               = eventIdField.value;
+    const title                 = eventTitleField.value.trim();
+    const localStart            = new Date(eventStartField.value);
+    const localEnd              = new Date(eventEndField.value);
+    const startUTC              = localStart.toISOString();
+    const endUTC                = localEnd.toISOString();
+    const participants          = inviteChips.map(ch => ch.email);
+    const eventDescriptionField = document.getElementById('eventDescription');
+    const description           = eventDescriptionField.value.trim();
 
     if (!chosenCalendarId || !title) {
       showError('Missing required fields.');
@@ -527,14 +521,15 @@ function initCalendar() {
     showSpinner();
     try {
       if (eventId) {
-        // Updating existing
+        // Updating
         await updateEvent({
           calendarId: chosenCalendarId,
           eventId,
           title,
           start: startUTC,
           end: endUTC,
-          participants
+          participants,
+          description
         });
         showToast("Updated", "Event was successfully updated.");
       } else {
@@ -544,7 +539,8 @@ function initCalendar() {
           title,
           start: startUTC,
           end: endUTC,
-          participants
+          participants,
+          description
         });
         showToast("Created", "Event was successfully created.");
       }
@@ -560,19 +556,19 @@ function initCalendar() {
     }
   });
 
-  /* Event CRUD helpers */
-  async function createEvent({ calendarId, title, start, end, participants }) {
+  /* CRUD helpers */
+  async function createEvent({ calendarId, title, start, end, participants, description }) {
     return fetchJSON('/api/create_event', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ calendarId, title, start, end, participants }),
+      body: JSON.stringify({ calendarId, title, start, end, participants, description }),
     });
   }
-  async function updateEvent({ calendarId, eventId, title, start, end, participants }) {
+  async function updateEvent({ calendarId, eventId, title, start, end, participants, description }) {
     return fetchJSON('/api/update_event', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ calendarId, eventId, title, start, end, participants }),
+      body: JSON.stringify({ calendarId, eventId, title, start, end, participants, description }),
     });
   }
   async function deleteEvent({ calendarId, id }) {
@@ -583,7 +579,7 @@ function initCalendar() {
     });
   }
 
-  /* Re-sync single room (used by polling in main.js) */
+  /* Re-sync single room */
   window.resyncSingleRoom = async function(roomId) {
     try {
       const resp = await fetchJSON(`/api/room_data?calendarId=${encodeURIComponent(roomId)}`);

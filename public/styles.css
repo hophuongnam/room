@@ -64,7 +64,6 @@ body {
   flex-wrap: wrap;
   gap: 4px;
   min-height: 40px;
-  border: 1px solid #ccc;
   padding: 4px;
   border-radius: 4px;
   position: relative;

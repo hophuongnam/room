@@ -1,3 +1,4 @@
+# app.rb
 require 'dotenv/load'
 # Force the environment to UTC, ignoring system timezone
 ENV['TZ'] = 'UTC'
@@ -307,12 +308,13 @@ get '/api/events' do
   {
     events: events.items.map do |event|
       {
-        id: event.id,
-        title: event.summary,
-        start: event.start.date_time || event.start.date,
-        end:   event.end.date_time   || event.end.date,
-        attendees: event.attendees&.map(&:email) || [],
-        location:  event.location
+        id:          event.id,
+        title:       event.summary,
+        start:       event.start.date_time || event.start.date,
+        end:         event.end.date_time   || event.end.date,
+        attendees:   event.attendees&.map(&:email) || [],
+        location:    event.location,
+        description: event.description || ""
       }
     end
   }.to_json
@@ -359,6 +361,7 @@ post '/api/create_event' do
   start_time_str = request_data['start']
   end_time_str   = request_data['end']
   participants   = request_data['participants'] || []
+  description    = request_data['description'] || ""
 
   halt 400, { error: 'Missing fields' }.to_json unless calendar_id && title && start_time_str && end_time_str
 
@@ -391,11 +394,12 @@ post '/api/create_event' do
   )
 
   event = Google::Apis::CalendarV3::Event.new(
-    summary:  title,
-    location: calendar_name,
-    start:    { date_time: start_time_utc.iso8601, time_zone: 'UTC' },
-    end:      { date_time: end_time_utc.iso8601,   time_zone: 'UTC' },
-    attendees: attendees_emails.map { |em| { email: em } },
+    summary:     title,
+    location:    calendar_name,
+    description: description,
+    start:       { date_time: start_time_utc.iso8601, time_zone: 'UTC' },
+    end:         { date_time: end_time_utc.iso8601,   time_zone: 'UTC' },
+    attendees:   attendees_emails.map { |em| { email: em } },
     extended_properties: extended_props
   )
 
@@ -434,23 +438,25 @@ post '/api/create_event' do
     title,
     attendees_emails,
     creator_email,
-    service
+    service,
+    description
   )
 
   content_type :json
   {
-    event_id:  event_id,
-    summary:   result.summary,
-    start:     result.start.date_time || result.start.date,
-    end:       result.end.date_time   || result.end.date,
-    attendees: result.attendees&.map(&:email) || [],
-    location:  result.location,
-    organizer: creator_email,
-    status:    'success'
+    event_id:    event_id,
+    summary:     result.summary,
+    start:       result.start.date_time || result.start.date,
+    end:         result.end.date_time   || result.end.date,
+    attendees:   result.attendees&.map(&:email) || [],
+    location:    result.location,
+    organizer:   creator_email,
+    description: description,
+    status:      'success'
   }.to_json
 end
 
-def create_linked_events_if_needed(original_cal_id, original_event_id, start_time, end_time, title, attendees, creator_email, service)
+def create_linked_events_if_needed(original_cal_id, original_event_id, start_time, end_time, title, attendees, creator_email, service, description)
   room_data = $rooms_data[original_cal_id]
   return unless room_data
 
@@ -472,7 +478,8 @@ def create_linked_events_if_needed(original_cal_id, original_event_id, start_tim
         title,
         attendees,
         creator_email,
-        service
+        service,
+        description
       )
     end
 
@@ -491,7 +498,8 @@ def create_linked_events_if_needed(original_cal_id, original_event_id, start_tim
           title,
           attendees,
           creator_email,
-          service
+          service,
+          description
         )
       end
     end
@@ -500,7 +508,7 @@ def create_linked_events_if_needed(original_cal_id, original_event_id, start_tim
   end
 end
 
-def create_linked_event(original_cal_id, original_event_id, linked_cal_id, start_time, end_time, title, attendees, creator_email, service)
+def create_linked_event(original_cal_id, original_event_id, linked_cal_id, start_time, end_time, title, attendees, creator_email, service, description)
   linked_name = $rooms_data[linked_cal_id][:calendar_info][:summary] rescue 'Linked Room'
 
   link_props = Google::Apis::CalendarV3::Event::ExtendedProperties.new(
@@ -512,11 +520,12 @@ def create_linked_event(original_cal_id, original_event_id, linked_cal_id, start
     }
   )
   event = Google::Apis::CalendarV3::Event.new(
-    summary:  title,
-    location: linked_name,
-    start:    { date_time: start_time.iso8601, time_zone: 'UTC' },
-    end:      { date_time: end_time.iso8601,   time_zone: 'UTC' },
-    attendees: attendees.map { |em| { email: em } },
+    summary:     title,
+    location:    linked_name,
+    description: description,
+    start:       { date_time: start_time.iso8601, time_zone: 'UTC' },
+    end:         { date_time: end_time.iso8601,   time_zone: 'UTC' },
+    attendees:   attendees.map { |em| { email: em } },
     extended_properties: link_props
   )
   service.insert_event(linked_cal_id, event)
@@ -546,6 +555,7 @@ put '/api/update_event' do
   event_id       = request_data['eventId']
   title          = request_data['title']
   participants   = request_data['participants'] || []
+  description    = request_data['description'] || ""
 
   # Optional new start/end for time changes
   new_start_time_str = request_data['start']
@@ -594,15 +604,16 @@ put '/api/update_event' do
   end
 
   updated_attendees_emails = (participants + [creator_email]).uniq.reject(&:empty?)
-  existing_event.summary    = title
-  existing_event.attendees  = updated_attendees_emails.map { |em| { email: em } }
+  existing_event.summary     = title
+  existing_event.description = description
+  existing_event.attendees   = updated_attendees_emails.map { |em| { email: em } }
 
   # Keep the location updated as well
   new_location = $rooms_data[calendar_id][:calendar_info][:summary] rescue 'Updated Room'
   existing_event.location = new_location
 
   result = service.update_event(calendar_id, event_id, existing_event)
-  sync_linked_events(calendar_id, event_id, result.summary, updated_attendees_emails, result.location, service)
+  sync_linked_events(calendar_id, event_id, result.summary, updated_attendees_emails, result.location, service, description)
 
   updated_events = fetch_events_for_calendar(calendar_id, service)
   if $rooms_data[calendar_id]
@@ -613,18 +624,19 @@ put '/api/update_event' do
 
   content_type :json
   {
-    event_id:  result.id,
-    summary:   result.summary,
-    start:     result.start.date_time || result.start.date,
-    end:       result.end.date_time   || result.end.date,
-    attendees: result.attendees&.map(&:email) || [],
-    location:  result.location,
-    organizer: creator_email,
-    status:    'success'
+    event_id:    result.id,
+    summary:     result.summary,
+    start:       result.start.date_time || result.start.date,
+    end:         result.end.date_time   || result.end.date,
+    attendees:   result.attendees&.map(&:email) || [],
+    location:    result.location,
+    organizer:   creator_email,
+    description: result.description || "",
+    status:      'success'
   }.to_json
 end
 
-def sync_linked_events(original_cal_id, original_event_id, new_title, new_attendees, new_location, service)
+def sync_linked_events(original_cal_id, original_event_id, new_title, new_attendees, new_location, service, description)
   $rooms_data.keys.each do |cal_id|
     next if cal_id == original_cal_id
 
@@ -641,9 +653,10 @@ def sync_linked_events(original_cal_id, original_event_id, new_title, new_attend
       next unless priv['original_calendar_id'] == original_cal_id
       next unless priv['original_event_id']   == original_event_id
 
-      ev.summary   = new_title
-      ev.attendees = new_attendees.map { |em| { email: em } }
-      ev.location  = $rooms_data[cal_id][:calendar_info][:summary] rescue new_location
+      ev.summary     = new_title
+      ev.attendees   = new_attendees.map { |em| { email: em } }
+      ev.location    = $rooms_data[cal_id][:calendar_info][:summary] rescue new_location
+      ev.description = description
 
       service.update_event(cal_id, ev.id, ev)
 
