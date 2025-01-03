@@ -52,6 +52,7 @@ function initCalendar() {
       const firstRoomId = getFirstCheckedRoomId();
       if (!firstRoomId) return;
 
+      // Color highlight for selection
       const color = roomColors[firstRoomId] || '#0d6efd';
       setTimeout(() => {
         const highlights = document.querySelectorAll('.fc-highlight');
@@ -71,6 +72,7 @@ function initCalendar() {
         return;
       }
 
+      // Open create event modal
       openEventModal({
         calendarId: firstRoomId,
         start: info.start,
@@ -101,6 +103,7 @@ function initCalendar() {
         return;
       }
 
+      // Open create event modal
       openEventModal({
         calendarId: firstRoomId,
         start,
@@ -120,6 +123,7 @@ function initCalendar() {
       const newStart= event.start;
       const newEnd  = event.end || new Date(newStart.getTime() + 30*60*1000);
 
+      // Overlap check
       if (doesOverlap(event, newStart, newEnd, window.multiCalendar)) {
         showToast('Error', "This move overlaps another event in the same room. Reverting.");
         info.revert();
@@ -166,6 +170,7 @@ function initCalendar() {
         return;
       }
 
+      // Overlap check
       if (doesOverlap(event, newStart, newEnd, window.multiCalendar)) {
         showToast('Error', "Resized event overlaps another event in the same room. Reverting.");
         info.revert();
@@ -215,9 +220,7 @@ function initCalendar() {
     });
   }
 
-  /* ------------------------------------------------------------------
-     Overlap Checking
-  ------------------------------------------------------------------ */
+  // Overlap check helper
   function doesOverlap(movingEvent, newStart, newEnd, calendar) {
     const allEvents = calendar.getEvents();
     const newStartMs = newStart.getTime();
@@ -235,11 +238,13 @@ function initCalendar() {
     }
     return false;
   }
+
   function sameRoomSource(evA, evB) {
     const srcIdA = evA.source?.id || '';
     const srcIdB = evB.source?.id || '';
     return (srcIdA === srcIdB);
   }
+
   function getFirstCheckedRoomId() {
     const roomsCheckboxBar = document.getElementById('roomsCheckboxBar');
     if (!roomsCheckboxBar) return null;
@@ -249,56 +254,51 @@ function initCalendar() {
   }
 
   /* ------------------------------------------------------------------
-     View Event Modal (updated for new structure)
+     View Event Modal
   ------------------------------------------------------------------ */
   window.openViewEventModal = function(event, calendarId) {
-    // 1) References to new modal elements
-    const viewEventModalEl     = document.getElementById('viewEventModal');
-    const viewEventTitleEl     = document.getElementById('viewEventTitle');
-    const viewEventDateTimeEl  = document.getElementById('viewEventDateTime');
-    const viewEventRoomEl      = document.getElementById('viewEventRoom');
-    const viewEventAttendeesEl = document.getElementById('viewEventAttendeesList');
+    // Grab references to the DOM elements in the new View Event Modal
+    const viewEventModalEl      = document.getElementById('viewEventModal');
+    const viewEventTitleEl      = document.getElementById('viewEventTitle');
+    const viewEventRoomEl       = document.getElementById('viewEventRoom');
+    const viewEventAttendeesEl  = document.getElementById('viewEventAttendeesList');
+    const viewEventEditBtn      = document.getElementById('viewEventEditBtn');
+    const viewEventDeleteBtn    = document.getElementById('viewEventDeleteBtn');
 
-    const viewEventEditBtn     = document.getElementById('viewEventEditBtn');
-    const viewEventDeleteBtn   = document.getElementById('viewEventDeleteBtn');
+    // Start/End Time in the same row
+    const viewEventStartTimeEl  = document.getElementById('viewEventStartTime');
+    const viewEventEndTimeEl    = document.getElementById('viewEventEndTime');
 
-    // The color circle
-    const colorCircleEl        = viewEventModalEl.querySelector('.color-circle');
+    // Optional color circle
+    const colorCircleEl         = viewEventModalEl.querySelector('.color-circle');
 
     if (!calendarId) return;
 
-    // 2) Room & color
+    // Find the room
     const foundRoom = rooms.find(r => r.id === calendarId);
     const roomName  = foundRoom ? foundRoom.summary : "Unknown Room";
     const roomColor = roomColors[calendarId] || '#0d6efd';
 
-    // 3) Populate Title
+    // Title
     viewEventTitleEl.textContent = event.title || 'Untitled';
 
-    // 4) Populate Date/Time
+    // Start/End
     const startTime = event.start ? new Date(event.start) : null;
     const endTime   = event.end   ? new Date(event.end)   : null;
-    if (startTime && endTime) {
-      const formatOptions = {
-        year: 'numeric', month: 'long', day: 'numeric',
-        hour: '2-digit', minute: '2-digit'
-      };
-      const startStr = startTime.toLocaleString([], formatOptions);
-      const endStr   = endTime.toLocaleString([], formatOptions);
-      viewEventDateTimeEl.textContent = `${startStr} – ${endStr}`;
-    } else {
-      viewEventDateTimeEl.textContent = 'N/A';
-    }
+    const formatOpts= { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
 
-    // 5) Populate Room
+    viewEventStartTimeEl.textContent = startTime ? startTime.toLocaleString([], formatOpts) : 'N/A';
+    viewEventEndTimeEl.textContent   = endTime   ? endTime.toLocaleString([], formatOpts)   : 'N/A';
+
+    // Room name
     viewEventRoomEl.textContent = roomName;
 
-    // 6) Update color circle
+    // Circle color
     if (colorCircleEl) {
       colorCircleEl.style.backgroundColor = roomColor;
     }
 
-    // 7) Attendees
+    // Attendees
     const rawAttendees = event.extendedProps?.attendees || event.attendees?.map(a => a.email) || [];
     viewEventAttendeesEl.innerHTML = ''; // Clear old items
 
@@ -317,18 +317,17 @@ function initCalendar() {
       viewEventAttendeesEl.appendChild(rowDiv);
     });
 
-    // 8) Edit & Delete Permissions
+    // Determine if user can edit/delete
     const isLinked     = (event.extendedProps?.is_linked === 'true');
     const creatorEmail = event.extendedProps?.creator_email;
     let canEditOrDelete = true;
 
-    // If linked, disallow direct edit
+    // Linked events can't be edited directly
     if (isLinked) {
       canEditOrDelete = false;
     } else {
       // If user is neither organizer nor attendee
-      const allAttendees = rawAttendees;
-      if (!allAttendees.includes(currentUserEmail) && creatorEmail !== currentUserEmail) {
+      if (!rawAttendees.includes(currentUserEmail) && creatorEmail !== currentUserEmail) {
         canEditOrDelete = false;
       }
     }
@@ -336,7 +335,7 @@ function initCalendar() {
     viewEventEditBtn.style.display   = canEditOrDelete ? 'inline-block' : 'none';
     viewEventDeleteBtn.style.display = canEditOrDelete ? 'inline-block' : 'none';
 
-    // Edit button => open the create/edit modal
+    // Edit => open the create/edit modal
     viewEventEditBtn.onclick = () => {
       if (!canEditOrDelete) return;
       openEventModal({
@@ -352,7 +351,7 @@ function initCalendar() {
       if (modalInstance) modalInstance.hide();
     };
 
-    // Delete button
+    // Delete
     viewEventDeleteBtn.onclick = async () => {
       if (!canEditOrDelete) return;
       const confirmDelete = confirm('Are you sure you want to delete this event?');
@@ -372,7 +371,7 @@ function initCalendar() {
       }
     };
 
-    // Finally show the modal
+    // Show modal
     const bsModal = new bootstrap.Modal(viewEventModalEl);
     bsModal.show();
   };
@@ -393,7 +392,7 @@ function initCalendar() {
       toLocalDateTimeInput
     } = window;
 
-    // NEW: find the room name
+    // Find the room
     const foundRoom = rooms.find(r => r.id === calendarId);
     const roomName  = foundRoom ? foundRoom.summary : "Unknown Room";
     const eventRoomNameField = document.getElementById('eventRoomName');
@@ -401,7 +400,7 @@ function initCalendar() {
       eventRoomNameField.value = roomName;
     }
 
-    // Set the color of the modal header if desired
+    // Color header
     const modalHeader = document.querySelector('#eventModal .modal-header');
     if (modalHeader) {
       const roomColor = roomColors[calendarId] || '#0d6efd';

@@ -175,7 +175,9 @@ body {
   justify-content: flex-end; /* right-align icons */
   gap: 1rem;
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid #ddd;
+
+  /* Remove bottom border for the icon bar */
+  border-bottom: none !important;
 }
 
 /* 
@@ -199,12 +201,9 @@ body {
 ------------------------ */
 .event-section {
   padding: 0.75rem 1rem;
-  border-bottom: 1px solid #ddd;
-}
 
-/* Remove border for the last section if desired */
-.event-section:last-of-type {
-  border-bottom: none;
+  /* Remove bottom border for each event section */
+  border-bottom: none !important;
 }
 
 /* The color circle next to the event title */

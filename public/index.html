@@ -62,10 +62,7 @@
     </div>
   </div>
 
-  <!-- 
-       VIEW EVENT MODAL 
-       (Replaced the old modal code with your new snippet)
-  -->
+  <!-- VIEW EVENT MODAL -->
   <div 
     class="modal fade" 
     id="viewEventModal" 
@@ -99,16 +96,6 @@
           </div>
         </div>
 
-        <!-- Date-Time row: use a calendar icon on the left -->
-        <div class="event-section row">
-          <div class="col-auto d-flex align-items-center">
-            <i class="bi bi-calendar3"></i>
-          </div>
-          <div class="col d-flex align-items-center event-date-time" id="viewEventDateTime">
-            Saturday, January 4 &middot; 12:30 – 2:00pm
-          </div>
-        </div>
-
         <!-- Location row: icon on left, text on right -->
         <div class="event-section row">
           <div class="col-auto d-flex align-items-center">
@@ -116,6 +103,33 @@
           </div>
           <div class="col d-flex align-items-center room-name" id="viewEventRoom">
             Room 1
+          </div>
+        </div>
+
+        <!-- Start/End Time row: single .event-section, but two lines for Start & End -->
+        <div class="event-section row">
+          <!-- Icon column -->
+          <div class="col-auto d-flex align-items-center">
+            <i class="bi bi-calendar3"></i>
+          </div>
+          
+          <!-- Times column (stacked vertically) -->
+          <div class="col d-flex flex-column">
+            <!-- Start Time -->
+            <div 
+              id="viewEventStartTime" 
+              class="event-date-time mb-2"
+            >
+              <!-- JS to fill in -->
+            </div>
+            
+            <!-- End Time -->
+            <div 
+              id="viewEventEndTime" 
+              class="event-date-time"
+            >
+              <!-- JS to fill in -->
+            </div>
           </div>
         </div>
 
