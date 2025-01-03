@@ -157,7 +157,7 @@
   >
     <div class="modal-dialog modal-xl">
       <form id="eventForm">
-        <!-- Removed modal-header; place everything in .modal-content -->
+        <!-- We omit a .modal-header entirely -->
         <div class="modal-content p-3 border">
           <!-- Hidden fields for ID/Calendar references -->
           <input type="hidden" id="eventId" />
@@ -204,10 +204,10 @@
 
           <div class="divider"></div>
 
-          <!-- Two-column layout: left has tabs, right has attendees -->
+          <!-- Two-column layout: 2/3 for tabs, 1/3 for attendees -->
           <div class="row">
-            <!-- Left Column (Tabs) -->
-            <div class="col-md-6">
+            <!-- Left Column: col-md-8 for tabs -->
+            <div class="col-md-8">
               <!-- Nav tabs -->
               <ul class="nav nav-tabs" id="locationTabs" role="tablist">
                 <li class="nav-item" role="presentation">
@@ -249,15 +249,19 @@
                   role="tabpanel"
                   aria-labelledby="location-tab"
                 >
-                  <!-- Location -->
+                  <!-- Location label + color square -->
                   <div class="mb-3 mt-3">
-                    <label class="form-label">Location</label>
-                    <input
-                      type="text"
-                      class="form-control"
-                      placeholder="Room 1"
-                      value="Room 1"
-                    />
+                    <label class="form-label d-flex align-items-center">
+                      <span 
+                        id="roomColorSquare" 
+                        class="me-2" 
+                        style="display: inline-block; width: 14px; height: 14px; background-color: #666;"
+                      ></span>
+                      Location
+                    </label>
+                    <select id="eventRoomSelect" class="form-select">
+                      <!-- Populated dynamically in calendar.js -->
+                    </select>
                   </div>
 
                   <div class="divider"></div>
@@ -283,11 +287,11 @@
               </div>
             </div>
 
-            <!-- Right Column (Attendees) -->
-            <div class="col-md-6">
+            <!-- Right Column: col-md-4 for attendees -->
+            <div class="col-md-4">
               <h6 class="section-title">Attendees</h6>
               <div class="d-flex mb-2">
-                <!-- ID matches your JS "chips" logic -->
+                <!-- ID matches your JS “chips” logic -->
                 <input
                   type="text"
                   class="form-control me-2"
