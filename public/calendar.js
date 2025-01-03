@@ -110,7 +110,9 @@ function initCalendar() {
 
     eventClick: (clickInfo) => {
       const calendarId = clickInfo.event.source?.id || null;
-      openViewEventModal(clickInfo.event, calendarId);
+      if (calendarId) {
+        openViewEventModal(clickInfo.event, calendarId);
+      }
     },
 
     eventDrop: (info) => {
@@ -205,7 +207,7 @@ function initCalendar() {
 
   window.multiCalendar.render();
 
-  // If user closes the modal, unselect highlight
+  // If user closes the Create/Edit modal, unselect highlight
   const eventModalEl = document.getElementById('eventModal');
   if (eventModalEl) {
     eventModalEl.addEventListener('hide.bs.modal', () => {
@@ -247,102 +249,110 @@ function initCalendar() {
   }
 
   /* ------------------------------------------------------------------
-     View Event Modal
+     View Event Modal (updated for new structure)
   ------------------------------------------------------------------ */
-  function openViewEventModal(event, calendarId) {
+  window.openViewEventModal = function(event, calendarId) {
+    // 1) References to new modal elements
+    const viewEventModalEl     = document.getElementById('viewEventModal');
+    const viewEventTitleEl     = document.getElementById('viewEventTitle');
+    const viewEventDateTimeEl  = document.getElementById('viewEventDateTime');
+    const viewEventRoomEl      = document.getElementById('viewEventRoom');
+    const viewEventAttendeesEl = document.getElementById('viewEventAttendeesList');
+
+    const viewEventEditBtn     = document.getElementById('viewEventEditBtn');
+    const viewEventDeleteBtn   = document.getElementById('viewEventDeleteBtn');
+
+    // The color circle
+    const colorCircleEl        = viewEventModalEl.querySelector('.color-circle');
+
     if (!calendarId) return;
 
-    const {
-      viewEventModal,
-      viewEventTitle,
-      viewEventStart,
-      viewEventEnd,
-      viewEventEditBtn,
-      viewEventDeleteBtn,
-      viewEventOrganizerChips,
-      viewEventAttendeesChips
-    } = window;
-
-    // NEW: Find the room name
+    // 2) Room & color
     const foundRoom = rooms.find(r => r.id === calendarId);
     const roomName  = foundRoom ? foundRoom.summary : "Unknown Room";
-
     const roomColor = roomColors[calendarId] || '#0d6efd';
-    const modalHeader = document.querySelector('#viewEventModal .modal-header');
-    modalHeader.classList.add('text-white');
-    modalHeader.style.backgroundColor = roomColor;
 
-    // Assign the event title
-    viewEventTitle.textContent = event.title || 'Untitled';
+    // 3) Populate Title
+    viewEventTitleEl.textContent = event.title || 'Untitled';
 
-    // Fill the new "Room" field
-    const viewEventRoomEl = document.getElementById('viewEventRoom');
-    if (viewEventRoomEl) {
-      viewEventRoomEl.textContent = roomName;
-    }
-
+    // 4) Populate Date/Time
     const startTime = event.start ? new Date(event.start) : null;
     const endTime   = event.end   ? new Date(event.end)   : null;
-    const formatOptions = {
-      year: 'numeric', month: 'long', day: 'numeric',
-      hour: '2-digit', minute: '2-digit'
-    };
-    viewEventStart.textContent = startTime
-      ? startTime.toLocaleString(undefined, formatOptions)
-      : 'N/A';
-    viewEventEnd.textContent   = endTime
-      ? endTime.toLocaleString(undefined, formatOptions)
-      : 'N/A';
+    if (startTime && endTime) {
+      const formatOptions = {
+        year: 'numeric', month: 'long', day: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+      };
+      const startStr = startTime.toLocaleString([], formatOptions);
+      const endStr   = endTime.toLocaleString([], formatOptions);
+      viewEventDateTimeEl.textContent = `${startStr} – ${endStr}`;
+    } else {
+      viewEventDateTimeEl.textContent = 'N/A';
+    }
 
-    const rawOrganizer = event.extendedProps?.organizer || event.extendedProps?.creator_email || '';
+    // 5) Populate Room
+    viewEventRoomEl.textContent = roomName;
+
+    // 6) Update color circle
+    if (colorCircleEl) {
+      colorCircleEl.style.backgroundColor = roomColor;
+    }
+
+    // 7) Attendees
     const rawAttendees = event.extendedProps?.attendees || event.attendees?.map(a => a.email) || [];
+    viewEventAttendeesEl.innerHTML = ''; // Clear old items
 
-    const orgObj = window.prefetchedUsers.find(u => 
-      u.email?.toLowerCase() === rawOrganizer.toLowerCase()
-    );
-    const organizerLabel = orgObj
-      ? `${orgObj.name} <${orgObj.email}>`
-      : rawOrganizer;
+    rawAttendees.forEach(email => {
+      const rowDiv = document.createElement('div');
+      rowDiv.className = 'd-flex align-items-center gap-2 mb-2';
 
-    const attendeeLabels = rawAttendees.map(addr => {
-      const found = window.prefetchedUsers.find(u => 
-        u.email?.toLowerCase() === addr.toLowerCase()
-      );
-      return found
-        ? `${found.name} <${found.email}>`
-        : addr;
+      const icon = document.createElement('i');
+      icon.className = 'bi bi-envelope';
+
+      const span = document.createElement('span');
+      span.textContent = email;
+
+      rowDiv.appendChild(icon);
+      rowDiv.appendChild(span);
+      viewEventAttendeesEl.appendChild(rowDiv);
     });
 
-    renderReadOnlyChips(viewEventOrganizerChips, [organizerLabel]);
-    renderReadOnlyChips(viewEventAttendeesChips, attendeeLabels);
-
-    const isLinked = (event.extendedProps?.is_linked === 'true');
+    // 8) Edit & Delete Permissions
+    const isLinked     = (event.extendedProps?.is_linked === 'true');
+    const creatorEmail = event.extendedProps?.creator_email;
     let canEditOrDelete = true;
+
+    // If linked, disallow direct edit
     if (isLinked) {
       canEditOrDelete = false;
     } else {
-      // If user is neither organizer nor attendee, disallow
-      if (!rawAttendees.includes(currentUserEmail) && rawOrganizer !== currentUserEmail) {
+      // If user is neither organizer nor attendee
+      const allAttendees = rawAttendees;
+      if (!allAttendees.includes(currentUserEmail) && creatorEmail !== currentUserEmail) {
         canEditOrDelete = false;
       }
     }
+
     viewEventEditBtn.style.display   = canEditOrDelete ? 'inline-block' : 'none';
     viewEventDeleteBtn.style.display = canEditOrDelete ? 'inline-block' : 'none';
 
+    // Edit button => open the create/edit modal
     viewEventEditBtn.onclick = () => {
-      if (canEditOrDelete) {
-        openEventModal({
-          calendarId,
-          eventId: event.id,
-          title: event.title,
-          start: event.start,
-          end: event.end,
-          attendees: rawAttendees
-        });
-      }
-      viewEventModal.hide();
+      if (!canEditOrDelete) return;
+      openEventModal({
+        calendarId,
+        eventId: event.id,
+        title: event.title,
+        start: event.start,
+        end: event.end,
+        attendees: rawAttendees
+      });
+
+      const modalInstance = bootstrap.Modal.getInstance(viewEventModalEl);
+      if (modalInstance) modalInstance.hide();
     };
 
+    // Delete button
     viewEventDeleteBtn.onclick = async () => {
       if (!canEditOrDelete) return;
       const confirmDelete = confirm('Are you sure you want to delete this event?');
@@ -353,25 +363,19 @@ function initCalendar() {
         allEventsMap[calendarId] = allEventsMap[calendarId].filter(ev => ev.id !== event.id);
         window.multiCalendar.getEventSourceById(calendarId)?.refetch();
 
-        viewEventModal.hide();
+        const modalInstance = bootstrap.Modal.getInstance(viewEventModalEl);
+        if (modalInstance) modalInstance.hide();
+
         showToast("Deleted", "Event was successfully deleted.");
       } catch (err) {
         showError(`Failed to delete event: ${err.message}`);
       }
     };
 
-    viewEventModal.show();
-  }
-
-  function renderReadOnlyChips(containerEl, items) {
-    containerEl.innerHTML = '';
-    items.forEach((item) => {
-      const chip = document.createElement('span');
-      chip.className = 'chip badge bg-secondary me-1';
-      chip.textContent = item;
-      containerEl.appendChild(chip);
-    });
-  }
+    // Finally show the modal
+    const bsModal = new bootstrap.Modal(viewEventModalEl);
+    bsModal.show();
+  };
 
   /* ------------------------------------------------------------------
      Create/Edit Modal
@@ -397,11 +401,13 @@ function initCalendar() {
       eventRoomNameField.value = roomName;
     }
 
-    // Set the color of the modal header
-    const roomColor = roomColors[calendarId] || '#0d6efd';
+    // Set the color of the modal header if desired
     const modalHeader = document.querySelector('#eventModal .modal-header');
-    modalHeader.classList.add('text-white');
-    modalHeader.style.backgroundColor = roomColor;
+    if (modalHeader) {
+      const roomColor = roomColors[calendarId] || '#0d6efd';
+      modalHeader.classList.add('text-white');
+      modalHeader.style.backgroundColor = roomColor;
+    }
 
     calendarIdField.value = calendarId || '';
     eventIdField.value    = eventId    || '';

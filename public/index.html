@@ -13,7 +13,13 @@
     href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" 
     rel="stylesheet"
   />
-  
+
+  <!-- Bootstrap Icons (needed for bi-* classes) -->
+  <link
+    rel="stylesheet"
+    href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css"
+  />
+
   <!-- Custom CSS (styles.css) -->
   <link rel="stylesheet" href="styles.css" />
 </head>
@@ -56,7 +62,10 @@
     </div>
   </div>
 
-  <!-- VIEW EVENT MODAL -->
+  <!-- 
+       VIEW EVENT MODAL 
+       (Replaced the old modal code with your new snippet)
+  -->
   <div 
     class="modal fade" 
     id="viewEventModal" 
@@ -64,43 +73,78 @@
     aria-labelledby="viewEventModalLabel" 
     aria-hidden="true"
   >
-    <div class="modal-dialog">
+    <div class="modal-dialog modal-dialog-scrollable">
       <div class="modal-content">
-        
-        <!-- Removed bg-primary text-white so we can set it dynamically -->
-        <div class="modal-header">
-          <h5 class="modal-title" id="viewEventModalLabel">
-            <span id="viewEventTitle"></span>
-          </h5>
-          <button 
-            type="button" 
-            class="btn-close btn-close-white" 
-            data-bs-dismiss="modal" 
-            aria-label="Close"
-          ></button>
-        </div>
-        
-        <div class="modal-body">
-          <p><strong>Room:</strong> <span id="viewEventRoom"></span></p>
-          <p><strong>Start:</strong> <span id="viewEventStart"></span></p>
-          <p><strong>End:</strong> <span id="viewEventEnd"></span></p>
 
-          <p><strong>Organizer:</strong></p>
-          <div id="viewEventOrganizerChips" class="chips-container mb-3"></div>
-          
-          <p><strong>Attendees:</strong></p>
-          <div id="viewEventAttendeesChips" class="chips-container mb-3"></div>
+        <!-- Icon bar on its own line, icons right-aligned -->
+        <div class="icon-bar">
+          <!-- Edit button -->
+          <i class="bi bi-pencil" id="viewEventEditBtn"></i>
+
+          <!-- Delete button -->
+          <i class="bi bi-trash" id="viewEventDeleteBtn"></i>
+
+          <!-- Close icon (dismisses modal) -->
+          <i class="bi bi-x close-icon" data-bs-dismiss="modal"></i>
+        </div>
+
+        <!-- Title row: color circle in left column, event title in right column -->
+        <div class="event-section row">
+          <div class="col-auto d-flex align-items-center">
+            <!-- The color circle as the 'icon' -->
+            <span class="color-circle"></span>
+          </div>
+          <div class="col d-flex align-items-center">
+            <h5 class="m-0" id="viewEventTitle">Test Event</h5>
+          </div>
+        </div>
+
+        <!-- Date-Time row: use a calendar icon on the left -->
+        <div class="event-section row">
+          <div class="col-auto d-flex align-items-center">
+            <i class="bi bi-calendar3"></i>
+          </div>
+          <div class="col d-flex align-items-center event-date-time" id="viewEventDateTime">
+            Saturday, January 4 &middot; 12:30 – 2:00pm
+          </div>
+        </div>
+
+        <!-- Location row: icon on left, text on right -->
+        <div class="event-section row">
+          <div class="col-auto d-flex align-items-center">
+            <i class="bi bi-geo-alt"></i>
+          </div>
+          <div class="col d-flex align-items-center room-name" id="viewEventRoom">
+            Room 1
+          </div>
+        </div>
+
+        <!-- Guest row: icon on left, multiple emails on right, using a Bootstrap icon for emails -->
+        <div class="event-section row">
+          <div class="col-auto d-flex align-items-center">
+            <i class="bi bi-people"></i>
+          </div>
+          <div class="col" id="viewEventAttendeesList">
+            <!-- Example placeholders. These will be dynamically injected/modified by JS. -->
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <i class="bi bi-envelope"></i>
+              <span>hophuongnam@gmail.com</span>
+            </div>
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <i class="bi bi-envelope"></i>
+              <span>john.doe@example.com</span>
+            </div>
+            <div class="d-flex align-items-center gap-2 mb-2">
+              <i class="bi bi-envelope"></i>
+              <span>jane.smith@example.com</span>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+              <i class="bi bi-envelope"></i>
+              <span>guest123@example.com</span>
+            </div>
+          </div>
         </div>
         
-        <div class="modal-footer">
-          <button id="viewEventEditBtn" class="btn btn-primary">Edit</button>
-          <button id="viewEventDeleteBtn" class="btn btn-danger">Delete</button>
-          <button 
-            type="button" 
-            class="btn btn-secondary" 
-            data-bs-dismiss="modal"
-          >Close</button>
-        </div>
       </div>
     </div>
   </div>
@@ -157,7 +201,9 @@
             </div>
 
             <div class="mb-3">
-              <label for="eventGuestsInput" class="form-label">Invite Participants (comma-separated emails)</label>
+              <label for="eventGuestsInput" class="form-label">
+                Invite Participants (comma-separated emails)
+              </label>
               <div id="eventGuestsContainer" class="chips-container">
                 <input 
                   type="text" 
