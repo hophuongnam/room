@@ -267,8 +267,121 @@ function initCalendar() {
      View Event Modal
   ------------------------------------------------------------------ */
   window.openViewEventModal = function(event, calendarId) {
-    // ... (unchanged code from your original)
-    // ...
+    // Grab references to the DOM elements in the new View Event Modal
+    const viewEventModalEl      = document.getElementById('viewEventModal');
+    const viewEventTitleEl      = document.getElementById('viewEventTitle');
+    const viewEventRoomEl       = document.getElementById('viewEventRoom');
+    const viewEventAttendeesEl  = document.getElementById('viewEventAttendeesList');
+    const viewEventEditBtn      = document.getElementById('viewEventEditBtn');
+    const viewEventDeleteBtn    = document.getElementById('viewEventDeleteBtn');
+
+    // Start/End Time in the same row
+    const viewEventStartTimeEl  = document.getElementById('viewEventStartTime');
+    const viewEventEndTimeEl    = document.getElementById('viewEventEndTime');
+
+    // Optional color circle
+    const colorCircleEl         = viewEventModalEl.querySelector('.color-circle');
+
+    if (!calendarId) return;
+
+    // Find the room
+    const foundRoom = rooms.find(r => r.id === calendarId);
+    const roomName  = foundRoom ? foundRoom.summary : "Unknown Room";
+    const roomColor = roomColors[calendarId] || '#0d6efd';
+
+    // Title
+    viewEventTitleEl.textContent = event.title || 'Untitled';
+
+    // Start/End
+    const startTime = event.start ? new Date(event.start) : null;
+    const endTime   = event.end   ? new Date(event.end)   : null;
+    const formatOpts= { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
+
+    viewEventStartTimeEl.textContent = startTime ? startTime.toLocaleString([], formatOpts) : 'N/A';
+    viewEventEndTimeEl.textContent   = endTime   ? endTime.toLocaleString([], formatOpts)   : 'N/A';
+
+    // Room name
+    viewEventRoomEl.textContent = roomName;
+
+    // Circle color
+    if (colorCircleEl) {
+      colorCircleEl.style.backgroundColor = roomColor;
+    }
+
+    // Attendees
+    const rawAttendees = event.extendedProps?.attendees || event.attendees?.map(a => a.email) || [];
+    viewEventAttendeesEl.innerHTML = ''; // Clear old items
+
+    rawAttendees.forEach(email => {
+      const rowDiv = document.createElement('div');
+      rowDiv.className = 'd-flex align-items-center gap-2 mb-2';
+
+      const icon = document.createElement('i');
+      icon.className = 'bi bi-envelope';
+
+      const span = document.createElement('span');
+      span.textContent = email;
+
+      rowDiv.appendChild(icon);
+      rowDiv.appendChild(span);
+      viewEventAttendeesEl.appendChild(rowDiv);
+    });
+
+    // Determine if user can edit/delete
+    const isLinked     = (event.extendedProps?.is_linked === 'true');
+    const creatorEmail = event.extendedProps?.creator_email;
+    let canEditOrDelete = true;
+
+    // Linked events can't be edited directly
+    if (isLinked) {
+      canEditOrDelete = false;
+    } else {
+      // If user is neither organizer nor attendee
+      if (!rawAttendees.includes(currentUserEmail) && creatorEmail !== currentUserEmail) {
+        canEditOrDelete = false;
+      }
+    }
+
+    viewEventEditBtn.style.display   = canEditOrDelete ? 'inline-block' : 'none';
+    viewEventDeleteBtn.style.display = canEditOrDelete ? 'inline-block' : 'none';
+
+    // Edit => open the create/edit modal
+    viewEventEditBtn.onclick = () => {
+      if (!canEditOrDelete) return;
+      openEventModal({
+        calendarId,
+        eventId: event.id,
+        title: event.title,
+        start: event.start,
+        end: event.end,
+        attendees: rawAttendees
+      });
+
+      const modalInstance = bootstrap.Modal.getInstance(viewEventModalEl);
+      if (modalInstance) modalInstance.hide();
+    };
+
+    // Delete
+    viewEventDeleteBtn.onclick = async () => {
+      if (!canEditOrDelete) return;
+      const confirmDelete = confirm('Are you sure you want to delete this event?');
+      if (!confirmDelete) return;
+
+      try {
+        await deleteEvent({ calendarId, id: event.id });
+        allEventsMap[calendarId] = allEventsMap[calendarId].filter(ev => ev.id !== event.id);
+        window.multiCalendar.getEventSourceById(calendarId)?.refetch();
+
+        const modalInstance = bootstrap.Modal.getInstance(viewEventModalEl);
+        if (modalInstance) modalInstance.hide();
+
+        showToast("Deleted", "Event was successfully deleted.");
+      } catch (err) {
+        showError(`Failed to delete event: ${err.message}`);
+      }
+    };
+
+    // Show modal
     const bsModal = new bootstrap.Modal(document.getElementById('viewEventModal'));
     bsModal.show();
   };
