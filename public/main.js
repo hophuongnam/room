@@ -21,7 +21,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const toastBodyEl  = document.getElementById('toastBody');
   const bsToast      = new bootstrap.Toast(toastEl, { delay: 3000 });
 
-  // Expose references to calendar modals (used by calendar.js as well)
+  // Expose references to calendar modals (used by calendar.js)
   window.viewEventModal          = new bootstrap.Modal(document.getElementById('viewEventModal'));
   window.viewEventTitle          = document.getElementById('viewEventTitle');
   window.viewEventStart          = document.getElementById('viewEventStart');
@@ -72,7 +72,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function fetchJSON(url, options = {}) {
     const res = await fetch(url, options);
 
-    // Check for organizer token error => 403
+    // If organizer credentials invalid => 403 => force re-login
     if (res.status === 403) {
       let errData;
       try {
@@ -81,7 +81,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         errData = { error: 'Unknown error' };
       }
       if (errData.error === 'Organizer credentials invalid. Please re-authenticate.') {
-        // Force logout => redirect with organizerError=1
         window.location.href = '/logout?organizerError=1';
         return;
       }
@@ -363,7 +362,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   function isValidEmail(str) {
-    const re = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const re = /^[^\s@]+@[^\s@]+$/;
     return re.test(str);
   }
 

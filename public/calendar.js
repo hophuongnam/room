@@ -23,6 +23,7 @@ function initCalendar() {
   } = window;
 
   window.multiCalendar = new FullCalendar.Calendar(multiCalendarEl, {
+    schedulerLicenseKey: 'GPL-My-Project-Is-Open-Source',
     timeZone: 'local',
     height: 'auto',
     nowIndicator: true,
@@ -59,11 +60,7 @@ function initCalendar() {
         });
       }, 0);
 
-      // Overlap check
-      const dummyEvent = { 
-        id: 'dummy', 
-        source: { id: firstRoomId }
-      };
+      const dummyEvent = { id: 'dummy', source: { id: firstRoomId } };
       if (doesOverlap(dummyEvent, info.start, info.end, window.multiCalendar)) {
         showToast('Error', 'Time slot overlaps another event in that room.');
         window.multiCalendar.unselect();
@@ -89,10 +86,7 @@ function initCalendar() {
         return;
       }
 
-      const dummyEvent = { 
-        id: 'dummy', 
-        source: { id: firstRoomId }
-      };
+      const dummyEvent = { id: 'dummy', source: { id: firstRoomId } };
       if (doesOverlap(dummyEvent, start, end, window.multiCalendar)) {
         showToast('Error', 'Time slot overlaps another event in that room.');
         return;
@@ -243,15 +237,6 @@ function initCalendar() {
     return checked.length > 0 ? checked[0].value : null;
   }
 
-  function getCheckedRoomIds() {
-    const roomsCheckboxBar = document.getElementById('roomsCheckboxBar');
-    if (!roomsCheckboxBar) return [];
-    const checkboxes = roomsCheckboxBar.querySelectorAll('input[type="checkbox"]');
-    return Array.from(checkboxes)
-      .filter(ch => ch.checked)
-      .map(ch => ch.value);
-  }
-
   window.openViewEventModal = function(event, calendarId) {
     const viewEventModalEl      = document.getElementById('viewEventModal');
     const viewEventTitleEl      = document.getElementById('viewEventTitle');
@@ -380,7 +365,10 @@ function initCalendar() {
 
     eventRoomSelect.innerHTML = '';
 
-    const checkedRoomIds = getCheckedRoomIds();
+    const roomsCheckboxBar = document.getElementById('roomsCheckboxBar');
+    const checkboxes = roomsCheckboxBar.querySelectorAll('input[type="checkbox"]');
+    const checkedRoomIds = Array.from(checkboxes).filter(ch => ch.checked).map(ch => ch.value);
+
     let defaultCalId = calendarId;
     if (!defaultCalId) {
       defaultCalId = (checkedRoomIds.length > 0)
@@ -413,7 +401,6 @@ function initCalendar() {
     eventTitleField.value = title        || '';
 
     if (!eventId) {
-      // new event => reset chips
       window.inviteChips = [];
       window.clearChipsUI();
       if (start) {
@@ -427,7 +414,6 @@ function initCalendar() {
         eventEndField.value = '';
       }
     } else {
-      // editing => keep existing chips
       if (!eventStartField.value && start) {
         eventStartField.value = window.toLocalDateTimeInput(new Date(start));
       }
@@ -457,21 +443,18 @@ function initCalendar() {
     if (!eventId || !eventDescriptionField.value) {
       eventDescriptionField.value = description || '';
     }
-    // 1) Force the “Event Details” tab in code:
+
+    // Force the "Event Details" tab each time
     const locationTabBtn = document.getElementById('location-tab');
     const blankTabBtn    = document.getElementById('blank-tab');
     const locationPane   = document.getElementById('location');
     const blankPane      = document.getElementById('blank');
 
-    // Remove 'active' from the "Find a time" tab/pane
     blankTabBtn.classList.remove('active');
     blankPane.classList.remove('show', 'active');
-    
-    // Add 'active' to the "Event Details" tab/pane
     locationTabBtn.classList.add('active');
     locationPane.classList.add('show', 'active');
 
-    // 2) Finally, show the modal
     eventModal.show();
   }
 
@@ -559,7 +542,6 @@ function initCalendar() {
       body: JSON.stringify({ calendarId, title, start, end, participants, description }),
     });
   }
-
   async function updateEvent({ calendarId, eventId, title, start, end, participants, description }) {
     return fetchJSON('/api/update_event', {
       method: 'PUT',
@@ -567,7 +549,6 @@ function initCalendar() {
       body: JSON.stringify({ calendarId, eventId, title, start, end, participants, description }),
     });
   }
-
   async function deleteEvent({ calendarId, id }) {
     return fetchJSON('/api/delete_event', {
       method: 'DELETE',
@@ -588,24 +569,18 @@ function initCalendar() {
   const findTimeTabBtn = document.querySelector('button[data-bs-target="#blank"]');
   if (findTimeTabBtn) {
     findTimeTabBtn.addEventListener('shown.bs.tab', async () => {
-      const {
-        eventStartField,
-        eventEndField,
-        inviteChips
-      } = window;
+      const { eventStartField, eventEndField, inviteChips } = window;
+      const resourceCalendarEl = document.getElementById('resourceCalendar');
 
-      const eventRoomSelect = document.getElementById('eventRoomSelect');
-      const findTimeContainer = document.getElementById('blank');
-
-      findTimeContainer.innerHTML = '<div class="mt-3"><p class="text-muted">Checking free/busy...</p></div>';
+      // Clear old resource calendar if any
+      resourceCalendarEl.innerHTML = '';
 
       const startVal = eventStartField.value;
       const endVal   = eventEndField.value;
-
       const participants = inviteChips.map(ch => ch.email);
 
       if (!startVal || !endVal || participants.length === 0) {
-        findTimeContainer.innerHTML = `
+        resourceCalendarEl.innerHTML = `
           <div class="mt-3">
             <p class="text-muted">
               Please select start/end time and add attendees before checking free/busy.
@@ -623,33 +598,47 @@ function initCalendar() {
         const resp = await fetchJSON('/api/freebusy', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            start: startIso,
-            end:   endIso,
-            attendees: participants
-          })
+          body: JSON.stringify({ start: startIso, end: endIso, attendees: participants })
         });
 
-        let html = '<div class="mt-3">';
+        // Prepare resources from participants
+        const resources = participants.map(email => ({
+          id: email,
+          title: email
+        }));
+
+        // Build event list from busy intervals, marking them as background
+        const events = [];
         for (const personId in resp.freebusy) {
           const intervals = resp.freebusy[personId];
-          html += `<p><strong>${personId}</strong><br/>`;
-          if (!intervals || intervals.length === 0) {
-            html += '<em>No busy intervals (fully free in this window)</em>';
-          } else {
-            intervals.forEach(b => {
-              html += `Busy from ${b.start} to ${b.end}<br/>`;
+          intervals.forEach(b => {
+            events.push({
+              resourceId: personId,
+              start: b.start,
+              end: b.end,
+              display: 'background',
+              color: '#ff0000'
             });
-          }
-          html += '</p>';
+          });
         }
-        html += '</div>';
 
-        findTimeContainer.innerHTML = html;
+        // Initialize a resourceTimeGrid (one-day) around the start date
+        const initDate = startIso.substring(0, 10); // 'YYYY-MM-DD'
+        const resourceCalendar = new FullCalendar.Calendar(resourceCalendarEl, {
+          schedulerLicenseKey: 'GPL-My-Project-Is-Open-Source',
+          initialView: 'resourceTimeGridDay',
+          initialDate: initDate,
+          nowIndicator: true,
+          slotMinTime: '08:00:00',
+          slotMaxTime: '18:00:00',
+          resources,
+          events
+        });
 
+        resourceCalendar.render();
       } catch (err) {
         showError(`Failed to fetch free/busy info: ${err.message}`);
-        findTimeContainer.innerHTML = '<p class="text-danger">Error loading free/busy.</p>';
+        resourceCalendarEl.innerHTML = '<p class="text-danger">Error loading free/busy.</p>';
       } finally {
         hideSpinner();
       }
