@@ -21,7 +21,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const toastBodyEl  = document.getElementById('toastBody');
   const bsToast      = new bootstrap.Toast(toastEl, { delay: 3000 });
 
-  // Expose references to calendar modals (used by calendar.js)
+  // Expose references to calendar modals (used by calendar.js as well)
   window.viewEventModal          = new bootstrap.Modal(document.getElementById('viewEventModal'));
   window.viewEventTitle          = document.getElementById('viewEventTitle');
   window.viewEventStart          = document.getElementById('viewEventStart');
@@ -72,7 +72,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   async function fetchJSON(url, options = {}) {
     const res = await fetch(url, options);
 
-    // If organizer credentials invalid => 403 => force re-login
+    // Organizer token error => 403 => force re-login
     if (res.status === 403) {
       let errData;
       try {
@@ -498,8 +498,35 @@ document.addEventListener('DOMContentLoaded', async () => {
   };
 
   /* ------------------------------------------------------------------
-     12) Initialize the calendar first, THEN enforce default selection
+     12) Create a "Switch View" button
   ------------------------------------------------------------------ */
-  initCalendar();            
+  const toggleViewBtn = document.createElement('button');
+  toggleViewBtn.id = 'toggleViewBtn';
+  toggleViewBtn.className = 'btn btn-secondary ms-auto';
+  toggleViewBtn.textContent = 'Switch to Resource View';
+
+  // Put it at the end of roomsCheckboxBar (aligned right)
+  roomsCheckboxBar.appendChild(toggleViewBtn);
+
+  let currentViewMode = 'multiple'; // default is the multiple event source
+
+  toggleViewBtn.addEventListener('click', () => {
+    if (currentViewMode === 'multiple') {
+      // Switch to resource
+      window.switchCalendarView('resource');
+      toggleViewBtn.textContent = 'Switch to Multiple View';
+      currentViewMode = 'resource';
+    } else {
+      // Switch back to multiple
+      window.switchCalendarView('multiple');
+      toggleViewBtn.textContent = 'Switch to Resource View';
+      currentViewMode = 'multiple';
+    }
+  });
+
+  /* ------------------------------------------------------------------
+     13) Finally init the calendar, then enforce default selection
+  ------------------------------------------------------------------ */
+  initCalendar(); // from calendar.js
   enforceDefaultSelection(); 
 });
