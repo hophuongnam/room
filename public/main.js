@@ -129,7 +129,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       currentUserEmail = meData.email;
       isLoggedIn = true;
     } else if (meRes.status === 401) {
-      console.log('User not logged in');
+      // Not logged in
     } else {
       const errText = await meRes.text();
       showError(`Could not check /api/me: (${meRes.status}) ${errText}`);
@@ -237,7 +237,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         storedSelections = JSON.parse(raw);
       }
     } catch (err) {
-      console.error('Error parsing localStorage:', err);
+      // ignore
     }
 
     if (storedSelections.includes(room.id)) {
@@ -289,7 +289,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       selectedIds.forEach((roomId) => {
         window.multiCalendar.addEventSource({
           id: roomId,
-          events: function(fetchInfo, successCallback, failureCallback) {
+          events: function(fetchInfo, successCallback) {
             const data = allEventsMap[roomId] || [];
             successCallback(data);
           },
@@ -326,8 +326,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   /* ------------------------------------------------------------------
      10) Create/Edit Modal => Chips
   ------------------------------------------------------------------ */
-  let inviteChips = [];
-  window.inviteChips = inviteChips;
+  // Single global inviteChips
+  window.inviteChips = [];
 
   function clearChipsUI() {
     eventGuestsContainer.querySelectorAll('.chip').forEach(ch => ch.remove());
@@ -335,7 +335,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   function renderChipsUI() {
     clearChipsUI();
-    inviteChips.forEach(chip => {
+    window.inviteChips.forEach(chip => {
       const chipEl = document.createElement('span');
       chipEl.className = 'chip badge bg-secondary me-1';
       chipEl.textContent = chip.label;
@@ -346,19 +346,19 @@ document.addEventListener('DOMContentLoaded', async () => {
       removeBtn.style.float = 'right';
       removeBtn.style.filter = 'invert(1)';
       removeBtn.addEventListener('click', () => {
-        inviteChips = inviteChips.filter(c => c !== chip);
+        window.inviteChips = window.inviteChips.filter(c => c !== chip);
         renderChipsUI();
       });
 
       chipEl.appendChild(removeBtn);
-      // eventGuestsContainer.insertBefore(chipEl, eventGuestsInput);
       eventGuestsContainer.appendChild(chipEl);
     });
   }
 
   function addChip({ label, email }) {
-    if (!inviteChips.find(ch => ch.email === email)) {
-      inviteChips.push({ label, email });
+    const existing = window.inviteChips.find(ch => ch.email === email);
+    if (!existing) {
+      window.inviteChips.push({ label, email });
     }
   }
 
@@ -410,9 +410,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       item.type = 'button';
       item.className = 'list-group-item list-group-item-action';
       item.textContent = `${user.name} <${user.email}>`;
+
       item.onclick = () => {
         addChip({
-          label: `${user.name} <${user.email}>`,
+          label: item.textContent,
           email: user.email
         });
         renderChipsUI();
@@ -420,6 +421,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         typeaheadDiv.remove();
         typeaheadDiv = null;
       };
+
       typeaheadDiv.appendChild(item);
     });
 
@@ -469,7 +471,6 @@ document.addEventListener('DOMContentLoaded', async () => {
         const currentVer = lastKnownVersions[roomId] || 0;
         if (version > currentVer) {
           lastKnownVersions[roomId] = version;
-          // Re-fetch data from the server, then update the calendar
           resyncSingleRoom(roomId); 
         }
       });

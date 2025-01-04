@@ -61,7 +61,11 @@ before do
     '/api/events',
     '/api/create_event',
     '/api/update_event',
-    '/api/delete_event'
+    '/api/delete_event',
+    '/api/all_users',
+    '/api/user_updates',
+    '/api/user_details',
+    '/api/freebusy'  # also protect freebusy
   ]
   if protected_paths.include?(request.path_info)
     unless session[:user_email]
@@ -742,6 +746,42 @@ def delete_linked_events(original_cal_id, original_event_id, service)
       $room_update_tracker[cal_id] += 1
     end
   end
+end
+
+# -------------------------------------------------
+# NEW: FREE/BUSY ROUTE
+# -------------------------------------------------
+post '/api/freebusy' do
+  content_type :json
+
+  data = JSON.parse(request.body.read)
+  start_str = data['start']
+  end_str   = data['end']
+  attendee_list = data['attendees'] || []
+
+  if !start_str || !end_str || attendee_list.empty?
+    halt 400, { error: 'Missing start/end/attendees.' }.to_json
+  end
+
+  service = Google::Apis::CalendarV3::CalendarService.new
+  service.authorization = load_organizer_credentials
+
+  request_obj = Google::Apis::CalendarV3::FreeBusyRequest.new(
+    time_min: Time.parse(start_str).utc.iso8601,
+    time_max: Time.parse(end_str).utc.iso8601,
+    items: attendee_list.map { |id| { id: id } }
+  )
+
+  resp = service.query_freebusy(request_obj)
+
+  # Build a simple structure showing the busy intervals
+  results = {}
+  resp.calendars.each do |cal_id, freebusy_cal|
+    busy = freebusy_cal.busy || []
+    results[cal_id] = busy.map { |b| { start: b.start, end: b.end } }
+  end
+
+  { freebusy: results }.to_json
 end
 
 # -------------------------------------------------

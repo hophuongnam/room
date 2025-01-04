@@ -4,6 +4,7 @@
    - Relies on globals from main.js:
        showToast, showError, showSpinner, hideSpinner, fetchJSON, etc.
        currentUserEmail, prefetchedUsers, rooms, allEventsMap, roomColors...
+       inviteChips (GLOBAL)
 ------------------------------------------------------------------ */
 
 function initCalendar() {
@@ -144,7 +145,6 @@ function initCalendar() {
           await resyncSingleRoom(roomId);
           window.multiCalendar.getEventSourceById(roomId)?.refetch();
         } catch (err) {
-          console.error("Failed to move event:", err);
           showError(`Failed to move event: ${err.message}`);
           info.revert();
         } finally {
@@ -191,7 +191,6 @@ function initCalendar() {
           await resyncSingleRoom(roomId);
           window.multiCalendar.getEventSourceById(roomId)?.refetch();
         } catch (err) {
-          console.error("Failed to resize event:", err);
           showError(`Failed to resize event: ${err.message}`);
           info.revert();
         } finally {
@@ -212,7 +211,6 @@ function initCalendar() {
     });
   }
 
-  /* Overlap check helper */
   function doesOverlap(movingEvent, newStart, newEnd, calendar) {
     const allEvents = calendar.getEvents();
     const newStartMs = newStart.getTime();
@@ -254,9 +252,6 @@ function initCalendar() {
       .map(ch => ch.value);
   }
 
-  /* ------------------------------------------------------------------
-     View Event Modal
-  ------------------------------------------------------------------ */
   window.openViewEventModal = function(event, calendarId) {
     const viewEventModalEl      = document.getElementById('viewEventModal');
     const viewEventTitleEl      = document.getElementById('viewEventTitle');
@@ -276,10 +271,8 @@ function initCalendar() {
     const roomName  = foundRoom ? foundRoom.summary : "Unknown Room";
     const roomColor = roomColors[calendarId] || '#0d6efd';
 
-    // Title
     viewEventTitleEl.textContent = event.title || 'Untitled';
 
-    // Start/End
     const startTime = event.start ? new Date(event.start) : null;
     const endTime   = event.end   ? new Date(event.end)   : null;
     const formatOpts= { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
@@ -287,15 +280,12 @@ function initCalendar() {
     viewEventStartTimeEl.textContent = startTime ? startTime.toLocaleString([], formatOpts) : 'N/A';
     viewEventEndTimeEl.textContent   = endTime   ? endTime.toLocaleString([], formatOpts)   : 'N/A';
 
-    // Room name
     viewEventRoomEl.textContent = roomName;
 
-    // Circle color
     if (colorCircleEl) {
       colorCircleEl.style.backgroundColor = roomColor;
     }
 
-    // Attendees
     const rawAttendees = event.extendedProps?.attendees || event.attendees?.map(a => a.email) || [];
     viewEventAttendeesEl.innerHTML = '';
     rawAttendees.forEach(email => {
@@ -313,18 +303,15 @@ function initCalendar() {
       viewEventAttendeesEl.appendChild(rowDiv);
     });
 
-    // Description
     const description = event.extendedProps?.description || '';
     if (description) {
       viewEventDescriptionEl.textContent = description;
       viewEventDescriptionRow.classList.remove('d-none');
     } else {
-      // Hide row if no description
       viewEventDescriptionEl.textContent = '';
       viewEventDescriptionRow.classList.add('d-none');
     }
 
-    // Determine if user can edit/delete
     const isLinked     = event.extendedProps?.is_linked === 'true';
     const creatorEmail = event.extendedProps?.organizer;
     let canEditOrDelete = true;
@@ -340,7 +327,6 @@ function initCalendar() {
     viewEventEditBtn.style.display   = canEditOrDelete ? 'inline-block' : 'none';
     viewEventDeleteBtn.style.display = canEditOrDelete ? 'inline-block' : 'none';
 
-    // Edit => open the create/edit modal
     viewEventEditBtn.onclick = () => {
       if (!canEditOrDelete) return;
       openEventModal({
@@ -357,7 +343,6 @@ function initCalendar() {
       if (modalInstance) modalInstance.hide();
     };
 
-    // Delete
     viewEventDeleteBtn.onclick = async () => {
       if (!canEditOrDelete) return;
       const confirmDelete = confirm('Are you sure you want to delete this event?');
@@ -367,24 +352,18 @@ function initCalendar() {
         await deleteEvent({ calendarId, id: event.id });
         allEventsMap[calendarId] = allEventsMap[calendarId].filter(ev => ev.id !== event.id);
         window.multiCalendar.getEventSourceById(calendarId)?.refetch();
-
         const modalInstance = bootstrap.Modal.getInstance(viewEventModalEl);
         if (modalInstance) modalInstance.hide();
-
         showToast("Deleted", "Event was successfully deleted.");
       } catch (err) {
         showError(`Failed to delete event: ${err.message}`);
       }
     };
 
-    // Show modal
     const bsModal = new bootstrap.Modal(viewEventModalEl);
     bsModal.show();
   };
 
-  /* ------------------------------------------------------------------
-     Create/Edit Modal
-  ------------------------------------------------------------------ */
   function openEventModal({ calendarId, eventId, title, start, end, attendees, description }) {
     const {
       eventModal,
@@ -399,10 +378,8 @@ function initCalendar() {
     const roomColorSquare       = document.getElementById('roomColorSquare');
     const eventDescriptionField = document.getElementById('eventDescription');
 
-    // Clear old <option>s
     eventRoomSelect.innerHTML = '';
 
-    // Decide which room is selected
     const checkedRoomIds = getCheckedRoomIds();
     let defaultCalId = calendarId;
     if (!defaultCalId) {
@@ -411,7 +388,6 @@ function initCalendar() {
         : (rooms.length > 0 ? rooms[0].id : null);
     }
 
-    // Populate <select>
     rooms.forEach((room) => {
       const option = document.createElement('option');
       option.value = room.id;
@@ -432,52 +408,75 @@ function initCalendar() {
       setSquareColor(eventRoomSelect.value);
     });
 
-    // Fill hidden fields
     calendarIdField.value = defaultCalId || '';
     eventIdField.value    = eventId      || '';
     eventTitleField.value = title        || '';
 
-    if (start) {
-      eventStartField.value = window.toLocalDateTimeInput(new Date(start));
+    if (!eventId) {
+      // new event => reset chips
+      window.inviteChips = [];
+      window.clearChipsUI();
+      if (start) {
+        eventStartField.value = window.toLocalDateTimeInput(new Date(start));
+      } else {
+        eventStartField.value = '';
+      }
+      if (end) {
+        eventEndField.value = window.toLocalDateTimeInput(new Date(end));
+      } else {
+        eventEndField.value = '';
+      }
     } else {
-      eventStartField.value = '';
-    }
-    if (end) {
-      eventEndField.value = window.toLocalDateTimeInput(new Date(end));
-    } else {
-      eventEndField.value = '';
+      // editing => keep existing chips
+      if (!eventStartField.value && start) {
+        eventStartField.value = window.toLocalDateTimeInput(new Date(start));
+      }
+      if (!eventEndField.value && end) {
+        eventEndField.value = window.toLocalDateTimeInput(new Date(end));
+      }
     }
 
-    // Reset chips
-    window.inviteChips = [];
-    window.clearChipsUI();
-
-    // Pre-populate attendees
     if (attendees && attendees.length > 0) {
       attendees.forEach((email) => {
-        const userObj = window.prefetchedUsers.find(u => u.email === email);
-        if (userObj) {
-          window.addChip({
-            label: userObj.name ? `${userObj.name} <${userObj.email}>` : userObj.email,
-            email: userObj.email
-          });
-        } else {
-          window.addChip({ label: email, email });
+        const existing = window.inviteChips.find(ch => ch.email === email);
+        if (!existing) {
+          const userObj = window.prefetchedUsers.find(u => u.email === email);
+          if (userObj) {
+            window.addChip({
+              label: userObj.name ? `${userObj.name} <${userObj.email}>` : userObj.email,
+              email: userObj.email
+            });
+          } else {
+            window.addChip({ label: email, email });
+          }
         }
       });
       window.renderChipsUI();
     }
 
-    // Description
-    eventDescriptionField.value = description || '';
+    if (!eventId || !eventDescriptionField.value) {
+      eventDescriptionField.value = description || '';
+    }
+    // 1) Force the “Event Details” tab in code:
+    const locationTabBtn = document.getElementById('location-tab');
+    const blankTabBtn    = document.getElementById('blank-tab');
+    const locationPane   = document.getElementById('location');
+    const blankPane      = document.getElementById('blank');
 
-    // Show modal
+    // Remove 'active' from the "Find a time" tab/pane
+    blankTabBtn.classList.remove('active');
+    blankPane.classList.remove('show', 'active');
+    
+    // Add 'active' to the "Event Details" tab/pane
+    locationTabBtn.classList.add('active');
+    locationPane.classList.add('show', 'active');
+
+    // 2) Finally, show the modal
     eventModal.show();
   }
 
   window.openEventModal = openEventModal;
 
-  // Save (create/update)
   eventForm.addEventListener('submit', async (e) => {
     e.preventDefault();
     const {
@@ -521,7 +520,6 @@ function initCalendar() {
     showSpinner();
     try {
       if (eventId) {
-        // Updating
         await updateEvent({
           calendarId: chosenCalendarId,
           eventId,
@@ -533,7 +531,6 @@ function initCalendar() {
         });
         showToast("Updated", "Event was successfully updated.");
       } else {
-        // Creating new
         await createEvent({
           calendarId: chosenCalendarId,
           title,
@@ -546,7 +543,6 @@ function initCalendar() {
       }
       await resyncSingleRoom(chosenCalendarId);
       window.multiCalendar.getEventSourceById(chosenCalendarId)?.refetch();
-
       window.eventModal.hide();
       window.multiCalendar.unselect();
     } catch (err) {
@@ -556,7 +552,6 @@ function initCalendar() {
     }
   });
 
-  /* CRUD helpers */
   async function createEvent({ calendarId, title, start, end, participants, description }) {
     return fetchJSON('/api/create_event', {
       method: 'POST',
@@ -564,6 +559,7 @@ function initCalendar() {
       body: JSON.stringify({ calendarId, title, start, end, participants, description }),
     });
   }
+
   async function updateEvent({ calendarId, eventId, title, start, end, participants, description }) {
     return fetchJSON('/api/update_event', {
       method: 'PUT',
@@ -571,6 +567,7 @@ function initCalendar() {
       body: JSON.stringify({ calendarId, eventId, title, start, end, participants, description }),
     });
   }
+
   async function deleteEvent({ calendarId, id }) {
     return fetchJSON('/api/delete_event', {
       method: 'DELETE',
@@ -579,7 +576,6 @@ function initCalendar() {
     });
   }
 
-  /* Re-sync single room */
   window.resyncSingleRoom = async function(roomId) {
     try {
       const resp = await fetchJSON(`/api/room_data?calendarId=${encodeURIComponent(roomId)}`);
@@ -588,4 +584,75 @@ function initCalendar() {
       showError(`Failed to re-sync room: ${roomId}. ${err.message}`);
     }
   };
+
+  const findTimeTabBtn = document.querySelector('button[data-bs-target="#blank"]');
+  if (findTimeTabBtn) {
+    findTimeTabBtn.addEventListener('shown.bs.tab', async () => {
+      const {
+        eventStartField,
+        eventEndField,
+        inviteChips
+      } = window;
+
+      const eventRoomSelect = document.getElementById('eventRoomSelect');
+      const findTimeContainer = document.getElementById('blank');
+
+      findTimeContainer.innerHTML = '<div class="mt-3"><p class="text-muted">Checking free/busy...</p></div>';
+
+      const startVal = eventStartField.value;
+      const endVal   = eventEndField.value;
+
+      const participants = inviteChips.map(ch => ch.email);
+
+      if (!startVal || !endVal || participants.length === 0) {
+        findTimeContainer.innerHTML = `
+          <div class="mt-3">
+            <p class="text-muted">
+              Please select start/end time and add attendees before checking free/busy.
+            </p>
+          </div>
+        `;
+        return;
+      }
+
+      const startIso = new Date(startVal).toISOString();
+      const endIso   = new Date(endVal).toISOString();
+
+      try {
+        showSpinner();
+        const resp = await fetchJSON('/api/freebusy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            start: startIso,
+            end:   endIso,
+            attendees: participants
+          })
+        });
+
+        let html = '<div class="mt-3">';
+        for (const personId in resp.freebusy) {
+          const intervals = resp.freebusy[personId];
+          html += `<p><strong>${personId}</strong><br/>`;
+          if (!intervals || intervals.length === 0) {
+            html += '<em>No busy intervals (fully free in this window)</em>';
+          } else {
+            intervals.forEach(b => {
+              html += `Busy from ${b.start} to ${b.end}<br/>`;
+            });
+          }
+          html += '</p>';
+        }
+        html += '</div>';
+
+        findTimeContainer.innerHTML = html;
+
+      } catch (err) {
+        showError(`Failed to fetch free/busy info: ${err.message}`);
+        findTimeContainer.innerHTML = '<p class="text-danger">Error loading free/busy.</p>';
+      } finally {
+        hideSpinner();
+      }
+    });
+  }
 }
