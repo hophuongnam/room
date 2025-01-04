@@ -108,12 +108,14 @@ document.addEventListener('DOMContentLoaded', async () => {
   /* ------------------------------------------------------------------
      4) Login/Logout
   ------------------------------------------------------------------ */
-  loginBtn.addEventListener('click', () => {
+  const loginBtnHandler = () => {
     window.location.href = '/login';
-  });
-  logoutBtn.addEventListener('click', () => {
+  };
+  const logoutBtnHandler = () => {
     window.location.href = '/logout';
-  });
+  };
+  loginBtn.addEventListener('click', loginBtnHandler);
+  logoutBtn.addEventListener('click', logoutBtnHandler);
 
   /* ------------------------------------------------------------------
      5) Check if user is logged in
@@ -178,6 +180,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     return;
   }
 
+  // Parse out "order:N" from description => _sortOrder, then sort
+  rooms.forEach((room) => {
+    const match = room.description?.match(/order:(\d+)/);
+    // default to 9999 if not found
+    room._sortOrder = match ? parseInt(match[1], 10) : 9999;
+  });
+  rooms.sort((a, b) => a._sortOrder - b._sortOrder);
+
   if (rooms.length === 0) {
     showError('No rooms found.');
     return;
@@ -210,8 +220,15 @@ document.addEventListener('DOMContentLoaded', async () => {
      9) Initialize Color-Coded Room Checkboxes
   ------------------------------------------------------------------ */
   const colorPalette = [
-    '#F16B61', '#3B76C2', '#EC8670', '#009688',
-    '#AD1457', '#E67E22', '#8E44AD', '#757575'
+    '#E63946', // Bright Red
+    '#457B9D', // Cool Blue
+    '#F4A261', // Warm Orange
+    '#8E44AD', // Deep Purple
+    '#F1C40F', // Bright Yellow
+    '#16A085', // Emerald Green
+    '#E67E22', // Pumpkin Orange
+    '#D35400', // Burnt Orange
+    '#34495E'  // Slate Blue
   ];
   const roomColors = {};
 

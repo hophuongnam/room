@@ -3,7 +3,8 @@
    - Single FullCalendar instance that can switch between resourceTimeGridDay
      and timeGridWeek (and optionally dayGridMonth), using one unified
      events definition.
-   - Incorporates the same create/edit/delete logic on a single instance.
+   - Incorporates the same create/edit/delete logic on a single instance,
+     plus "resourceOrder" to keep day view consistent with checkboxes.
 ------------------------------------------------------------------ */
 
 function initCalendar() {
@@ -13,7 +14,6 @@ function initCalendar() {
     return;
   }
 
-  // Create ONE FullCalendar instance with resource + multiple views in the header
   window.multiCalendar = new FullCalendar.Calendar(multiCalendarEl, {
     schedulerLicenseKey: 'GPL-My-Project-Is-Open-Source', // or your license key
     timeZone: 'local',
@@ -21,8 +21,9 @@ function initCalendar() {
     nowIndicator: true,
     slotMinTime: '08:00:00',
     slotMaxTime: '18:00:00',
-    initialView: 'timeGridWeek', // can be changed if you prefer a different default
-    firstDay: 1, // Monday as first day of week
+    resourceOrder: 'orderIndex', // Ensure resourceTimeGridDay follows same order
+    initialView: 'timeGridWeek',
+    firstDay: 1,
     headerToolbar: {
       left: 'prev,next today',
       center: 'title',
@@ -34,9 +35,11 @@ function initCalendar() {
     selectable: true,
 
     // Define the rooms as resources for the resourceTimeGridDay view
-    resources: window.rooms.map(r => ({
+    resources: window.rooms.map((r) => ({
       id: r.id,
-      title: r.summary
+      title: r.summary,
+      // attach the same numeric order => resourceOrder uses 'orderIndex'
+      orderIndex: r._sortOrder
     })),
 
     // A single "events" callback that merges all events, filtered by user selections
@@ -127,7 +130,7 @@ function initCalendar() {
     // eventClick => open the "view event" modal
     eventClick(info) {
       const event = info.event;
-      // We store the 'calendarId' in the 'source' id or in 'resourceId'
+      // We store the 'calendarId' in the 'resource' id or in 'source' id
       const calendarId = event.resource?.id || event.source?.id;
       if (!calendarId) return;
 
@@ -147,7 +150,6 @@ function initCalendar() {
         return;
       }
 
-      // Identify the room (via resource or old source)
       const roomId = event.resource?.id || event.source?.id;
       if (!roomId) {
         info.revert();
