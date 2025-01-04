@@ -264,9 +264,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     wrapper.appendChild(chk);
     wrapper.appendChild(lbl);
     roomsCheckboxBar.appendChild(wrapper);
-
-    window.roomColors = roomColors;
   });
+
+  // Expose globally
+  window.roomColors = roomColors;
 
   function onRoomsCheckboxChange() {
     const checkboxes = roomsCheckboxBar.querySelectorAll('input[type="checkbox"]');
@@ -275,28 +276,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       .map(ch => ch.value);
 
     localStorage.setItem('selectedRoomIds', JSON.stringify(selectedIds));
-    applyCheckedRoomSources(selectedIds);
+    // Re-render the calendar (it will call events() again)
+    if (window.multiCalendar) {
+      window.multiCalendar.refetchEvents();
+    }
     updateSingleRoomName(selectedIds);
-  }
-
-  function applyCheckedRoomSources(selectedIds) {
-    if (!window.multiCalendar) return;
-
-    window.multiCalendar.batchRendering(() => {
-      window.multiCalendar.removeAllEventSources();
-
-      selectedIds.forEach((roomId) => {
-        window.multiCalendar.addEventSource({
-          id: roomId,
-          events: function(fetchInfo, successCallback) {
-            const data = allEventsMap[roomId] || [];
-            successCallback(data);
-          },
-          color: roomColors[roomId] || '#333',
-          textColor: '#fff'
-        });
-      });
-    });
   }
 
   function updateSingleRoomName(selectedRoomIds) {
@@ -313,6 +297,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
+  // Enforce at least one default selection
   function enforceDefaultSelection() {
     const checkboxes = roomsCheckboxBar.querySelectorAll('input[type="checkbox"]');
     const anyChecked = Array.from(checkboxes).some(ch => ch.checked);
@@ -325,7 +310,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   /* ------------------------------------------------------------------
      10) Create/Edit Modal => Chips
   ------------------------------------------------------------------ */
-  // Single global inviteChips
   window.inviteChips = [];
 
   function clearChipsUI() {
@@ -494,38 +478,24 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   window.resyncSingleRoom = async function(roomId) {
-    // Placeholder, real logic is in calendar.js
+    // Called when the server indicates a specific room changed
+    showSpinner();
+    try {
+      const resp = await fetchJSON(`/api/room_data?calendarId=${encodeURIComponent(roomId)}`);
+      allEventsMap[roomId] = resp.events || [];
+      // Refresh the calendar
+      if (window.multiCalendar) {
+        window.multiCalendar.refetchEvents();
+      }
+    } catch (error) {
+      showError(`Failed to refresh room data: ${error.message}`);
+    } finally {
+      hideSpinner();
+    }
   };
 
   /* ------------------------------------------------------------------
-     12) Create a "Switch View" button
-  ------------------------------------------------------------------ */
-  const toggleViewBtn = document.createElement('button');
-  toggleViewBtn.id = 'toggleViewBtn';
-  toggleViewBtn.className = 'btn btn-secondary ms-auto';
-  toggleViewBtn.textContent = 'Switch to Resource View';
-
-  // Put it at the end of roomsCheckboxBar (aligned right)
-  roomsCheckboxBar.appendChild(toggleViewBtn);
-
-  let currentViewMode = 'multiple'; // default is the multiple event source
-
-  toggleViewBtn.addEventListener('click', () => {
-    if (currentViewMode === 'multiple') {
-      // Switch to resource
-      window.switchCalendarView('resource');
-      toggleViewBtn.textContent = 'Switch to Multiple View';
-      currentViewMode = 'resource';
-    } else {
-      // Switch back to multiple
-      window.switchCalendarView('multiple');
-      toggleViewBtn.textContent = 'Switch to Resource View';
-      currentViewMode = 'multiple';
-    }
-  });
-
-  /* ------------------------------------------------------------------
-     13) Finally init the calendar, then enforce default selection
+     12) Initialize the single FullCalendar
   ------------------------------------------------------------------ */
   initCalendar(); // from calendar.js
   enforceDefaultSelection(); 

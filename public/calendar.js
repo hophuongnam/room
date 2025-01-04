@@ -1,328 +1,258 @@
 /* ------------------------------------------------------------------
    calendar.js
-   - Provides two FullCalendar configurations:
-       1) "Multiple" => timeGridWeek with multiple event sources
-       2) "Resource" => resourceTimeGridDay with each room as a row
-   - Toggling is handled by window.switchCalendarView(...)
-   - initCalendar() defaults to the "multiple" view.
-
-   Make sure your index.html loads (in this order):
-     <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.15/index.global.min.js"></script>
-     <script src="https://cdn.jsdelivr.net/npm/@fullcalendar/timegrid@6.1.15/index.global.min.js"></script>
-     <script src="https://cdn.jsdelivr.net/npm/@fullcalendar/resource@6.1.15/index.global.min.js"></script>
-     <script src="https://cdn.jsdelivr.net/npm/@fullcalendar/resource-timegrid@6.1.15/index.global.min.js"></script>
-
-   Then load main.js and this calendar.js in that order.
+   - Single FullCalendar instance that can switch between resourceTimeGridDay
+     and timeGridWeek (and optionally dayGridMonth), using one unified
+     events definition.
+   - Incorporates the same create/edit/delete logic on a single instance.
 ------------------------------------------------------------------ */
 
-/* ------------------------------------------------------------------
-   initCalendar()
-   - Called by main.js after the page is ready and references are set.
-   - Defaults to the "multiple" view.
------------------------------------------------------------------- */
 function initCalendar() {
-  switchCalendarView('multiple'); // default
-}
-
-/* ------------------------------------------------------------------
-   switchCalendarView(viewMode)
-   - Destroys any existing calendar instance (window.multiCalendar)
-     if valid, then creates a new one for either "resource" or
-     "multiple" mode, and calls .render().
------------------------------------------------------------------- */
-window.switchCalendarView = function(viewMode) {
-  // Defensive check: only call .destroy() if it’s actually a FullCalendar instance
-  if (window.multiCalendar && typeof window.multiCalendar.destroy === 'function') {
-    window.multiCalendar.destroy();
-  }
-
   const multiCalendarEl = document.getElementById('multiCalendar');
   if (!multiCalendarEl) {
     console.error("Could not find #multiCalendar element in the DOM.");
     return;
   }
 
-  if (viewMode === 'resource') {
-    // ---------------------------
-    // RESOURCE MODE
-    // ---------------------------
-    window.multiCalendar = new FullCalendar.Calendar(multiCalendarEl, {
-      schedulerLicenseKey: 'GPL-My-Project-Is-Open-Source', // adjust if needed
-      timeZone: 'local',
-      height: 'auto',
-      nowIndicator: true,
-      slotMinTime: '08:00:00',
-      slotMaxTime: '18:00:00',
-      firstDay: 1,
-      headerToolbar: {
-        left: 'prev,next today',
-        center: 'title',
-        right: 'resourceTimeGridDay'
-      },
-      initialView: 'resourceTimeGridDay',
-      editable: false, // set to true if you want drag in resource mode
+  // Create ONE FullCalendar instance with resource + multiple views in the header
+  window.multiCalendar = new FullCalendar.Calendar(multiCalendarEl, {
+    schedulerLicenseKey: 'GPL-My-Project-Is-Open-Source', // or your license key
+    timeZone: 'local',
+    height: 'auto',
+    nowIndicator: true,
+    slotMinTime: '08:00:00',
+    slotMaxTime: '18:00:00',
+    initialView: 'timeGridWeek', // can be changed if you prefer a different default
+    firstDay: 1, // Monday as first day of week
+    headerToolbar: {
+      left: 'prev,next today',
+      center: 'title',
+      right: 'resourceTimeGridDay,timeGridWeek,dayGridMonth'
+    },
+    editable: true,
+    eventResizableFromStart: true,
+    selectMirror: true,
+    selectable: true,
 
-      // Convert your known rooms array => resources
-      resources: window.rooms.map(r => ({
-        id: r.id,
-        title: r.summary
-      })),
+    // Define the rooms as resources for the resourceTimeGridDay view
+    resources: window.rooms.map(r => ({
+      id: r.id,
+      title: r.summary
+    })),
 
-      // For now, we don't show any events in resource view
-      // Or adapt it to actually map events to resourceId.
-      events(info, successCallback) {
-        // Return empty => no events
-        successCallback([]);
-      }
-    });
+    // A single "events" callback that merges all events, filtered by user selections
+    events(info, successCallback) {
+      const checkboxes = document.querySelectorAll(
+        '#roomsCheckboxBar input[type="checkbox"]'
+      );
+      const selectedRoomIds = Array.from(checkboxes)
+        .filter(ch => ch.checked)
+        .map(ch => ch.value);
 
-  } else {
-    // ---------------------------
-    // MULTIPLE MODE
-    // ---------------------------
-    window.multiCalendar = new FullCalendar.Calendar(multiCalendarEl, {
-      timeZone: 'local',
-      height: 'auto',
-      nowIndicator: true,
-      slotMinTime: '08:00:00',
-      slotMaxTime: '18:00:00',
-      initialView: 'timeGridWeek',
-      firstDay: 1,
-      headerToolbar: {
-        left: 'prev,next today',
-        center: 'title',
-        right: 'dayGridMonth,timeGridWeek,timeGridDay',
-      },
-      selectable: true,
-      selectMirror: true,
-      unselectAuto: false,
-      editable: true,
-      eventResizableFromStart: true,
-
-      selectAllow(selectInfo) {
-        if (selectInfo.start < new Date()) {
-          return false;
-        }
-        return true;
-      },
-
-      select(info) {
-        const firstRoomId = getFirstCheckedRoomId();
-        if (!firstRoomId) return;
-
-        const color = window.roomColors[firstRoomId] || '#0d6efd';
-        // highlight color
-        setTimeout(() => {
-          document.querySelectorAll('.fc-highlight').forEach(el => {
-            el.style.backgroundColor = color;
+      const mergedEvents = [];
+      for (const roomId of selectedRoomIds) {
+        const roomEvents = window.allEventsMap[roomId] || [];
+        for (const ev of roomEvents) {
+          mergedEvents.push({
+            ...ev,
+            resourceId: roomId, // So resource view lines up the event with this room
+            backgroundColor: window.roomColors[roomId] || '#333',
+            textColor: '#fff'
           });
-        }, 0);
-
-        const dummyEvent = { id: 'dummy', source: { id: firstRoomId } };
-        if (doesOverlap(dummyEvent, info.start, info.end, window.multiCalendar)) {
-          window.showToast('Error', 'Time slot overlaps another event in that room.');
-          window.multiCalendar.unselect();
-          return;
         }
+      }
+      successCallback(mergedEvents);
+    },
 
-        openEventModal({
-          calendarId: firstRoomId,
-          start: info.start,
-          end: info.end
-        });
-      },
+    // Prevent selecting in the past
+    selectAllow(selectInfo) {
+      if (selectInfo.start < new Date()) {
+        return false;
+      }
+      return true;
+    },
 
-      dateClick(info) {
-        const start = info.date;
-        const end   = new Date(start.getTime() + 30 * 60 * 1000);
+    // Handling select => open the "create event" modal
+    select(info) {
+      const firstSelectedRoomId = getFirstCheckedRoomId();
+      if (!firstSelectedRoomId) {
+        window.showToast('Notice', 'No room selected.');
+        window.multiCalendar.unselect();
+        return;
+      }
 
-        const firstRoomId = getFirstCheckedRoomId();
-        if (!firstRoomId) return;
+      // Overlap check
+      if (doesOverlap({ id: 'dummy', source: { id: firstSelectedRoomId } }, info.start, info.end)) {
+        window.showToast('Error', 'Time slot overlaps an existing event in that room.');
+        window.multiCalendar.unselect();
+        return;
+      }
 
-        if (start < new Date()) {
-          window.showToast('Error', 'Cannot create an event in the past.');
-          return;
-        }
-
-        const dummyEvent = { id: 'dummy', source: { id: firstRoomId } };
-        if (doesOverlap(dummyEvent, start, end, window.multiCalendar)) {
-          window.showToast('Error', 'Time slot overlaps another event in that room.');
-          return;
-        }
-
-        openEventModal({
-          calendarId: firstRoomId,
-          start,
-          end
-        });
-      },
-
-      eventClick(clickInfo) {
-        const calendarId = clickInfo.event.source?.id || null;
-        if (calendarId) {
-          openViewEventModal(clickInfo.event, calendarId);
-        }
-      },
-
-      eventDrop(info) {
-        const event   = info.event;
-        const newStart= event.start;
-        const newEnd  = event.end || new Date(newStart.getTime() + 30*60*1000);
-
-        if (doesOverlap(event, newStart, newEnd, window.multiCalendar)) {
-          window.showToast('Error', "This move overlaps another event. Reverting.");
-          info.revert();
-          return;
-        }
-
-        const roomId = event.source?.id;
-        if (!roomId) {
-          info.revert();
-          return;
-        }
-
-        window.showSpinner();
-        setTimeout(async () => {
-          try {
-            await updateEvent({
-              calendarId: roomId,
-              eventId: event.id,
-              title: event.title,
-              start: newStart.toISOString(),
-              end:   newEnd.toISOString(),
-              participants: event.extendedProps.attendees || [],
-              description: event.extendedProps.description || ""
-            });
-            window.showToast("Updated", "Event was successfully moved.");
-            await window.resyncSingleRoom(roomId);
-            window.multiCalendar.getEventSourceById(roomId)?.refetch();
-          } catch (err) {
-            window.showError(`Failed to move event: ${err.message}`);
-            info.revert();
-          } finally {
-            window.hideSpinner();
-          }
-        }, 0);
-      },
-
-      eventResize(info) {
-        const event   = info.event;
-        const newStart= event.start;
-        const newEnd  = event.end;
-
-        if (!newEnd) {
-          info.revert();
-          return;
-        }
-
-        if (doesOverlap(event, newStart, newEnd, window.multiCalendar)) {
-          window.showToast('Error', "Resized event overlaps. Reverting.");
-          info.revert();
-          return;
-        }
-
-        const roomId = event.source?.id;
-        if (!roomId) {
-          info.revert();
-          return;
-        }
-
-        window.showSpinner();
-        setTimeout(async () => {
-          try {
-            await updateEvent({
-              calendarId: roomId,
-              eventId: event.id,
-              title: event.title,
-              start: newStart.toISOString(),
-              end:   newEnd.toISOString(),
-              participants: event.extendedProps.attendees || [],
-              description: event.extendedProps.description || ""
-            });
-            window.showToast("Updated", "Event was resized successfully.");
-            await window.resyncSingleRoom(roomId);
-            window.multiCalendar.getEventSourceById(roomId)?.refetch();
-          } catch (err) {
-            window.showError(`Failed to resize event: ${err.message}`);
-            info.revert();
-          } finally {
-            window.hideSpinner();
-          }
-        }, 0);
-      },
-
-      eventSources: []
-    });
-  }
-
-  // Render the new instance
-  window.multiCalendar.render();
-
-  // In "multiple" mode, re-apply the checked rooms as event sources
-  if (viewMode === 'multiple') {
-    reapplyCheckedRoomSources();
-  }
-};
-
-/*
-  reapplyCheckedRoomSources():
-  - Collect all checked rooms from #roomsCheckboxBar,
-  - Add them as event sources to window.multiCalendar
-*/
-function reapplyCheckedRoomSources() {
-  if (!window.multiCalendar) return;
-
-  const roomsCheckboxBar = document.getElementById('roomsCheckboxBar');
-  const checkboxes = roomsCheckboxBar.querySelectorAll('input[type="checkbox"]');
-  const selectedIds = Array.from(checkboxes)
-    .filter(ch => ch.checked)
-    .map(ch => ch.value);
-
-  window.multiCalendar.batchRendering(() => {
-    window.multiCalendar.removeAllEventSources();
-
-    selectedIds.forEach(roomId => {
-      window.multiCalendar.addEventSource({
-        id: roomId,
-        events(fetchInfo, successCallback) {
-          const data = window.allEventsMap[roomId] || [];
-          successCallback(data);
-        },
-        color: window.roomColors[roomId] || '#333',
-        textColor: '#fff'
+      openEventModal({
+        calendarId: firstSelectedRoomId,
+        start: info.start,
+        end: info.end
       });
-    });
+    },
+
+    // dateClick also used for quick creation if no range is selected
+    dateClick(info) {
+      const start = info.date;
+      const end   = new Date(start.getTime() + 30 * 60 * 1000);
+
+      const firstSelectedRoomId = getFirstCheckedRoomId();
+      if (!firstSelectedRoomId) {
+        window.showToast('Notice', 'No room selected.');
+        return;
+      }
+
+      // Prevent in the past
+      if (start < new Date()) {
+        window.showToast('Error', 'Cannot create an event in the past.');
+        return;
+      }
+
+      // Overlap check
+      if (doesOverlap({ id: 'dummy', source: { id: firstSelectedRoomId } }, start, end)) {
+        window.showToast('Error', 'Time slot overlaps an existing event in that room.');
+        return;
+      }
+
+      openEventModal({
+        calendarId: firstSelectedRoomId,
+        start,
+        end
+      });
+    },
+
+    // eventClick => open the "view event" modal
+    eventClick(info) {
+      const event = info.event;
+      // We store the 'calendarId' in the 'source' id or in 'resourceId'
+      const calendarId = event.resource?.id || event.source?.id;
+      if (!calendarId) return;
+
+      openViewEventModal(event, calendarId);
+    },
+
+    // Dragging an event
+    eventDrop(info) {
+      const event   = info.event;
+      const newStart= event.start;
+      const newEnd  = event.end || new Date(newStart.getTime() + 30*60*1000);
+
+      // Overlap check
+      if (doesOverlap(event, newStart, newEnd)) {
+        window.showToast('Error', "This move overlaps another event. Reverting.");
+        info.revert();
+        return;
+      }
+
+      // Identify the room (via resource or old source)
+      const roomId = event.resource?.id || event.source?.id;
+      if (!roomId) {
+        info.revert();
+        return;
+      }
+
+      window.showSpinner();
+      setTimeout(async () => {
+        try {
+          await updateEvent({
+            calendarId: roomId,
+            eventId: event.id,
+            title: event.title,
+            start: newStart.toISOString(),
+            end:   newEnd.toISOString(),
+            participants: event.extendedProps.attendees || [],
+            description: event.extendedProps.description || ""
+          });
+          window.showToast("Updated", "Event was successfully moved.");
+          await window.resyncSingleRoom(roomId);
+        } catch (err) {
+          window.showError(`Failed to move event: ${err.message}`);
+          info.revert();
+        } finally {
+          window.hideSpinner();
+        }
+      }, 0);
+    },
+
+    // Resizing an event
+    eventResize(info) {
+      const event   = info.event;
+      const newStart= event.start;
+      const newEnd  = event.end;
+
+      if (!newEnd) {
+        info.revert();
+        return;
+      }
+
+      if (doesOverlap(event, newStart, newEnd)) {
+        window.showToast('Error', "Resized event overlaps. Reverting.");
+        info.revert();
+        return;
+      }
+
+      const roomId = event.resource?.id || event.source?.id;
+      if (!roomId) {
+        info.revert();
+        return;
+      }
+
+      window.showSpinner();
+      setTimeout(async () => {
+        try {
+          await updateEvent({
+            calendarId: roomId,
+            eventId: event.id,
+            title: event.title,
+            start: newStart.toISOString(),
+            end:   newEnd.toISOString(),
+            participants: event.extendedProps.attendees || [],
+            description: event.extendedProps.description || ""
+          });
+          window.showToast("Updated", "Event was resized successfully.");
+          await window.resyncSingleRoom(roomId);
+        } catch (err) {
+          window.showError(`Failed to resize event: ${err.message}`);
+          info.revert();
+        } finally {
+          window.hideSpinner();
+        }
+      }, 0);
+    }
   });
+
+  // Render the calendar
+  window.multiCalendar.render();
 }
 
 /* ------------------------------------------------------------------
-   doesOverlap(movingEvent, newStart, newEnd, calendar)
-   - Overlap logic from your existing code
+   doesOverlap(movingEvent, newStart, newEnd)
+   - Overlap logic for a single room
 ------------------------------------------------------------------ */
-function doesOverlap(movingEvent, newStart, newEnd, calendar) {
-  const allEvents = calendar.getEvents();
+function doesOverlap(movingEvent, newStart, newEnd) {
+  const allEvents = window.multiCalendar.getEvents();
   const newStartMs = newStart.getTime();
   const newEndMs   = newEnd.getTime();
 
   for (const ev of allEvents) {
     if (ev.id === movingEvent.id) continue;
-    const evStart = ev.start?.getTime();
-    const evEnd   = (ev.end || ev.start)?.getTime();
 
-    // Overlap check
+    // Must be the same room
+    const evRoomId = ev.resource?.id || ev.source?.id || '';
+    const movingRoomId = movingEvent.resource?.id || movingEvent.source?.id || '';
+    if (evRoomId !== movingRoomId) continue;
+
+    const evStart = ev.start ? ev.start.getTime() : null;
+    const evEnd   = ev.end   ? ev.end.getTime()   : evStart;
+
     if (evStart < newEndMs && evEnd > newStartMs) {
-      if (sameRoomSource(movingEvent, ev)) {
-        return true;
-      }
+      return true;
     }
   }
   return false;
-}
-
-function sameRoomSource(evA, evB) {
-  const srcIdA = evA.source?.id || '';
-  const srcIdB = evB.source?.id || '';
-  return (srcIdA === srcIdB);
 }
 
 /* ------------------------------------------------------------------
@@ -339,7 +269,7 @@ function getFirstCheckedRoomId() {
 
 /* ------------------------------------------------------------------
    openViewEventModal(event, calendarId)
-   - from your existing code for viewing an event in a modal
+   - Displays a modal with details about the event
 ------------------------------------------------------------------ */
 function openViewEventModal(event, calendarId) {
   const viewEventModalEl      = document.getElementById('viewEventModal');
@@ -354,9 +284,7 @@ function openViewEventModal(event, calendarId) {
   const viewEventDescriptionRow = document.getElementById('viewEventDescriptionRow');
   const viewEventDescriptionEl  = document.getElementById('viewEventDescription');
 
-  if (!calendarId) return;
-
-  // Find the room’s name/color
+  // Room name/color
   const foundRoom = window.rooms.find(r => r.id === calendarId);
   const roomName  = foundRoom ? foundRoom.summary : "Unknown Room";
   const roomColor = window.roomColors[calendarId] || '#0d6efd';
@@ -408,7 +336,7 @@ function openViewEventModal(event, calendarId) {
     viewEventDescriptionRow.classList.add('d-none');
   }
 
-  // Determine edit/delete perms
+  // Permissions check
   const isLinked     = event.extendedProps?.is_linked === 'true';
   const creatorEmail = event.extendedProps?.organizer;
   let canEditOrDelete = true;
@@ -416,7 +344,6 @@ function openViewEventModal(event, calendarId) {
   if (isLinked) {
     canEditOrDelete = false;
   } else {
-    // only if user is in attendees or is the creator
     if (!rawAttendees.includes(window.currentUserEmail) && creatorEmail !== window.currentUserEmail) {
       canEditOrDelete = false;
     }
@@ -452,8 +379,8 @@ function openViewEventModal(event, calendarId) {
       await deleteEvent({ calendarId, id: event.id });
       // Remove from local map
       window.allEventsMap[calendarId] = window.allEventsMap[calendarId].filter(ev => ev.id !== event.id);
-      // Refresh the source
-      window.multiCalendar.getEventSourceById(calendarId)?.refetch();
+      // Refresh the calendar
+      window.multiCalendar.refetchEvents();
 
       const modalInstance = bootstrap.Modal.getInstance(viewEventModalEl);
       if (modalInstance) modalInstance.hide();
@@ -470,7 +397,7 @@ function openViewEventModal(event, calendarId) {
 
 /* ------------------------------------------------------------------
    openEventModal(...)
-   - Create/edit event logic
+   - Create/edit event modal
 ------------------------------------------------------------------ */
 function openEventModal({ calendarId, eventId, title, start, end, attendees, description }) {
   const {
@@ -489,17 +416,12 @@ function openEventModal({ calendarId, eventId, title, start, end, attendees, des
   // Clear old <option> from the Room <select>
   eventRoomSelect.innerHTML = '';
 
-  // figure out which room is selected
+  // Figure out which rooms are checked
   const roomsCheckboxBar = document.getElementById('roomsCheckboxBar');
   const checkboxes = roomsCheckboxBar.querySelectorAll('input[type="checkbox"]');
   const checkedRoomIds = Array.from(checkboxes).filter(ch => ch.checked).map(ch => ch.value);
 
-  let defaultCalId = calendarId;
-  if (!defaultCalId) {
-    defaultCalId = (checkedRoomIds.length > 0)
-      ? checkedRoomIds[0]
-      : (window.rooms.length > 0 ? window.rooms[0].id : null);
-  }
+  let defaultCalId = calendarId || (checkedRoomIds.length > 0 ? checkedRoomIds[0] : null);
 
   // Populate the <select>
   window.rooms.forEach((room) => {
@@ -522,12 +444,12 @@ function openEventModal({ calendarId, eventId, title, start, end, attendees, des
     setSquareColor(eventRoomSelect.value);
   });
 
-  // Fill hidden fields
+  // Hidden fields
   calendarIdField.value = defaultCalId || '';
   eventIdField.value    = eventId      || '';
   eventTitleField.value = title        || '';
 
-  // For new events => reset chips
+  // If new => reset chips
   if (!eventId) {
     window.inviteChips = [];
     window.clearChipsUI();
@@ -543,7 +465,7 @@ function openEventModal({ calendarId, eventId, title, start, end, attendees, des
       eventEndField.value = '';
     }
   } else {
-    // editing => keep existing chips
+    // editing => keep existing times
     if (!eventStartField.value && start) {
       eventStartField.value = window.toLocalDateTimeInput(new Date(start));
     }
