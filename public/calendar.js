@@ -103,11 +103,9 @@ function initCalendar() {
       let chosenRoomId;
       if (info.resource) {
         chosenRoomId = info.resource.id;
-        console.log("User drag-selected resource:", chosenRoomId);
       } else {
         // Non-resource => fallback
         chosenRoomId = getFirstCheckedRoomId();
-        console.log("Non-resource => first checked room:", chosenRoomId);
       }
 
       if (!chosenRoomId) {
@@ -169,8 +167,7 @@ function initCalendar() {
     eventDrop(info) {
       // user dragged an existing event
       const event = info.event;
-      if (info.newResource) {
-        console.log("Moved to resource:", info.newResource.id);
+      if (info.newResource) {        
       }
       const newStart = event.start;
       const newEnd   = event.end || new Date(newStart.getTime() + 30 * 60 * 1000);

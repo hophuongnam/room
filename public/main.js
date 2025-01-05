@@ -536,5 +536,66 @@ document.addEventListener('DOMContentLoaded', async () => {
      12) Initialize the single FullCalendar
   ------------------------------------------------------------------ */
   initCalendar(); // from calendar.js
-  enforceDefaultSelection(); 
+  enforceDefaultSelection();
+
+  /* ------------------------------------------------------------------
+     13) Handle form submission to prevent page reload
+  ------------------------------------------------------------------ */
+  eventForm.addEventListener('submit', async (e) => {
+    e.preventDefault(); // Prevent the browser from reloading
+
+    const calendarId    = calendarIdField.value;
+    const eventId       = eventIdField.value;
+    const title         = eventTitleField.value.trim();
+    const start         = eventStartField.value;  // "YYYY-MM-DDTHH:mm"
+    const end           = eventEndField.value;    // "YYYY-MM-DDTHH:mm"
+    const descriptionEl = document.getElementById('eventDescription');
+    const description   = descriptionEl ? descriptionEl.value.trim() : "";
+
+    // Gather participants from chips
+    const participants = window.inviteChips.map(c => c.email);
+
+    // Basic validation (e.g. required fields)
+    if (!calendarId || !title || !start || !end) {
+      showError('Please fill out required fields (room, title, start, end).');
+      return;
+    }
+
+    try {
+      showSpinner();
+      if (eventId) {
+        // Update existing event
+        await window.calendarHelpers.updateEvent({
+          calendarId,
+          eventId,
+          title,
+          start,
+          end,
+          participants,
+          description
+        });
+        showToast('Updated', 'Event updated successfully.');
+      } else {
+        // Create new event
+        await window.calendarHelpers.createEvent({
+          calendarId,
+          title,
+          start,
+          end,
+          participants,
+          description
+        });
+        showToast('Created', 'Event created successfully.');
+      }
+      // Re-sync that room’s data
+      await resyncSingleRoom(calendarId);
+
+      // Close the modal
+      window.eventModal.hide();
+    } catch (err) {
+      showError(`Error saving event: ${err.message}`);
+    } finally {
+      hideSpinner();
+    }
+  });
 });
