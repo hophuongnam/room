@@ -1,11 +1,3 @@
-/* ------------------------------------------------------------------
-   calendar.js (TOT Version, with persisted user view in localStorage)
-   - Single FullCalendar instance that can switch between resourceTimeGridDay,
-     timeGridWeek, or dayGridMonth, while remembering the last-chosen view.
-   - Uses extendedProps.realCalendarId to store the calendar ID.
-   - Includes localStorage logic to persist the chosen view.
------------------------------------------------------------------- */
-
 function initCalendar() {
   const multiCalendarEl = document.getElementById('multiCalendar');
   if (!multiCalendarEl) {
@@ -53,7 +45,7 @@ function initCalendar() {
       localStorage.setItem('userSelectedView', currentViewType);
     },
 
-    /* 
+    /*
        Build the event list by merging all selected rooms' events.
        We store realCalendarId in extendedProps so we can open the 
        correct calendar in eventClick.
