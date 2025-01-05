@@ -1,9 +1,3 @@
-/* ------------------------------------------------------------------
-   calendar.js
-   - Initializes the FullCalendar instance (multiCalendar).
-   - Persists the user-selected view (day/week/month) in localStorage.
------------------------------------------------------------------- */
-
 function initCalendar() {
   const multiCalendarEl = document.getElementById('multiCalendar');
   if (!multiCalendarEl) {
@@ -11,17 +5,18 @@ function initCalendar() {
     return;
   }
 
-  // Destructure the helper methods from the global object (calendar_helpers.js)
+  // Destructure helper methods from your global object
   const {
     getFirstCheckedRoomId,
+    getFirstCheckedRoomColor,
     doesOverlap,
     openEventModal,
     openViewEventModal,
     updateEvent,
     deleteEvent
-  } = window.calendarHelpers; 
+  } = window.calendarHelpers;
 
-  // 1) Retrieve the last used view from localStorage, or default to 'timeGridWeek'
+  // Retrieve the last used view from localStorage, or default to 'timeGridWeek'
   const savedView = localStorage.getItem('userSelectedView') || 'timeGridWeek';
 
   // Create the FullCalendar instance
@@ -32,7 +27,7 @@ function initCalendar() {
     nowIndicator: true,
     slotMinTime: '08:00:00',
     slotMaxTime: '18:00:00',
-    initialView: savedView,       // <-- Set the calendar's initial view
+    initialView: savedView,
     resourceOrder: 'orderIndex',
     firstDay: 1,
 
@@ -42,22 +37,19 @@ function initCalendar() {
       right:  'resourceTimeGridDay,timeGridWeek,dayGridMonth'
     },
 
-    // Make events draggable & resizable
     editable: true,
     eventResizableFromStart: true,
 
-    // Allow selecting a time range for new events
+    // Key change: no mirror, so we rely on .fc-highlight
     selectable: true,
-    selectMirror: true,
+    selectMirror: false, // ensure we get the highlight rectangle
 
-    // Provide resources (rooms) dynamically based on which checkboxes are checked
     resources(fetchInfo, successCallback, failureCallback) {
       const checkboxes = document.querySelectorAll('#roomsCheckboxBar input[type="checkbox"]');
       const selectedRoomIds = Array.from(checkboxes)
         .filter(ch => ch.checked)
         .map(ch => ch.value);
 
-      // Return only the rooms that are currently selected
       const displayedResources = window.rooms
         .filter(r => selectedRoomIds.includes(r.id))
         .map(r => ({
@@ -69,7 +61,6 @@ function initCalendar() {
       successCallback(displayedResources);
     },
 
-    // Combine and return events from each checked room
     events(fetchInfo, successCallback, failureCallback) {
       const checkboxes = document.querySelectorAll('#roomsCheckboxBar input[type="checkbox"]');
       const selectedRoomIds = Array.from(checkboxes)
@@ -95,27 +86,12 @@ function initCalendar() {
       successCallback(mergedEvents);
     },
 
-    // For the "mirror" event (the greyed-out event while selecting)
-    eventDidMount(info) {
-      if (info.isMirror) {
-        // Attempt to color the mirror event consistently
-        const resourceIds = info.event._def.resourceIds;
-        if (resourceIds && resourceIds.length > 0) {
-          const resourceId = resourceIds[0];
-          if (window.roomColors && window.roomColors[resourceId]) {
-            info.el.style.backgroundColor = window.roomColors[resourceId];
-            info.el.style.color = '#fff';
-          }
-        }
-      }
-    },
-
-    // Disallow selecting time in the past
+    // Disallow selecting in the past
     selectAllow(selectInfo) {
       return selectInfo.start >= new Date();
     },
 
-    // Triggered when a user selects a time range
+    // Called after user finishes drag-select
     select(info) {
       const firstRoomId = getFirstCheckedRoomId();
       if (!firstRoomId) {
@@ -132,7 +108,7 @@ function initCalendar() {
         return;
       }
 
-      // Open "create event" modal
+      // Finally open the create-event modal
       openEventModal({
         calendarId: firstRoomId,
         start: info.start,
@@ -140,29 +116,25 @@ function initCalendar() {
       });
     },
 
-    // dateClick => create a quick 30-minute event if not overlapping
     dateClick(info) {
       const start = info.date;
-      const end = new Date(start.getTime() + 30 * 60 * 1000);
+      const end   = new Date(start.getTime() + 30 * 60 * 1000);
       const firstRoomId = getFirstCheckedRoomId();
       if (!firstRoomId) {
         window.showToast('Notice', 'No room selected.');
         return;
       }
-      // Prevent creating in the past
       if (start < new Date()) {
         window.showToast('Error', 'Cannot create an event in the past.');
         return;
       }
 
-      // Overlap check
       const dummyEvent = { id: 'dummy', extendedProps: { realCalendarId: firstRoomId } };
       if (doesOverlap(dummyEvent, start, end)) {
         window.showToast('Error', 'Time slot overlaps an existing event in that room.');
         return;
       }
 
-      // Open "create event" modal
       openEventModal({
         calendarId: firstRoomId,
         start,
@@ -170,7 +142,6 @@ function initCalendar() {
       });
     },
 
-    // Clicking an existing event => open read-only event modal
     eventClick(info) {
       const event = info.event;
       const calendarId = event.extendedProps?.realCalendarId;
@@ -178,7 +149,7 @@ function initCalendar() {
       openViewEventModal(event, calendarId);
     },
 
-    // Drag an event => update its start/end
+    // Drag an event => update
     eventDrop(info) {
       const event = info.event;
       const newStart = event.start;
@@ -220,7 +191,7 @@ function initCalendar() {
       }, 0);
     },
 
-    // Resize an event => update its duration
+    // Resize an event => update
     eventResize(info) {
       const event = info.event;
       const newStart = event.start;
@@ -266,15 +237,46 @@ function initCalendar() {
       }, 0);
     },
 
-    // 2) Whenever the view changes, store the new view type in localStorage
+    // store the new view type in localStorage
     viewDidMount(args) {
       localStorage.setItem('userSelectedView', args.view.type);
     }
   });
 
-  // Finally, render the calendar
+  // Render
   window.multiCalendar.render();
-}
 
-// Optionally expose initCalendar to the global scope
-window.initCalendar = initCalendar;
+  /* ------------------------------------------------------------------
+     REAL-TIME HACK: Color the .fc-highlight as user drags
+     We'll use a MutationObserver or a mousemove approach.
+  ------------------------------------------------------------------ */
+
+  // Function that sets highlight color
+  function colorHighlightEls() {
+    const color = getFirstCheckedRoomColor();
+    const highlights = document.querySelectorAll('.fc-highlight');
+    highlights.forEach(el => {
+      el.style.backgroundColor = color;
+      el.style.opacity = '0.3'; // or 0.5, adjust to taste
+    });
+  }
+
+  // 1) Observe DOM changes in .fc-view-harness
+  const fcContainer = document.querySelector('.fc-view-harness');
+  if (fcContainer) {
+    const observer = new MutationObserver((mutations) => {
+      // Whenever there's a change (new highlight, etc.), color them
+      colorHighlightEls();
+    });
+    observer.observe(fcContainer, {
+      childList: true,
+      subtree: true
+    });
+  }
+
+  // 2) Also handle mousemove for better real-time re-coloring
+  //    (especially if highlights re-render while dragging)
+  if (fcContainer) {
+    fcContainer.addEventListener('mousemove', colorHighlightEls);
+  }
+}
