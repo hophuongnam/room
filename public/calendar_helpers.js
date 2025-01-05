@@ -16,11 +16,11 @@ function getFirstCheckedRoomId() {
 }
 
 /**
- * Return the color of the first checked room, or a fallback color if none
+ * Return the color of the first checked room, or a fallback if none
  */
 function getFirstCheckedRoomColor() {
   const roomId = getFirstCheckedRoomId();
-  if (!roomId) return '#666'; // fallback color if no room is checked
+  if (!roomId) return '#666';
   return window.roomColors && window.roomColors[roomId]
     ? window.roomColors[roomId]
     : '#666';
