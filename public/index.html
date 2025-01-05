@@ -115,7 +115,7 @@
     aria-labelledby="eventModalLabel" 
     aria-hidden="true"
   >
-    <!-- Note the added id="eventModalDialog" below -->
+    <!-- Note the added id="eventModalDialog" -->
     <div class="modal-dialog modal-xl" id="eventModalDialog">
       <form id="eventForm">
         <div class="modal-content p-3 border">
@@ -285,6 +285,7 @@
   
   <!-- Main JS must come before calendar.js -->
   <script src="main.js" defer></script>
+  <script src="calendar_helpers.js" defer></script>
   <script src="calendar.js" defer></script>
 
   <!-- Inline script to show organizer error alert if needed -->

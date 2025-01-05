@@ -1,10 +1,3 @@
-/* ------------------------------------------------------------------
-   main.js (THU version)
-   - Handles general UI setup (login/logout, user checks, rooms fetch)
-   - Provides helpers like fetchJSON, showToast, showSpinner, etc.
-   - Exposes data & functions for calendar.js
------------------------------------------------------------------- */
-
 document.addEventListener('DOMContentLoaded', async () => {
   /* ------------------------------------------------------------------
      1) DOM References
@@ -200,7 +193,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const locationTabBtn   = document.getElementById('location-tab');
   const blankTabBtn      = document.getElementById('blank-tab');
 
-  // Store the original dialog classes (e.g., "modal-dialog modal-xl")
+  // Store original dialog classes (e.g. "modal-dialog modal-xl")
   const originalDialogClasses = eventModalDialog ? eventModalDialog.className : '';
 
   if (locationTabBtn && blankTabBtn && eventModalDialog) {
