@@ -194,6 +194,28 @@ document.addEventListener('DOMContentLoaded', async () => {
   }
 
   /* ------------------------------------------------------------------
+     Toggle "full viewport" modal when "Find a time" tab is active
+  ------------------------------------------------------------------ */
+  const eventModalDialog = document.getElementById('eventModalDialog');
+  const locationTabBtn   = document.getElementById('location-tab');
+  const blankTabBtn      = document.getElementById('blank-tab');
+
+  // Store the original dialog classes (e.g., "modal-dialog modal-xl")
+  const originalDialogClasses = eventModalDialog ? eventModalDialog.className : '';
+
+  if (locationTabBtn && blankTabBtn && eventModalDialog) {
+    // "Event Details" => restore original size
+    locationTabBtn.addEventListener('shown.bs.tab', () => {
+      eventModalDialog.className = originalDialogClasses;
+    });
+
+    // "Find a time" => make modal fullscreen
+    blankTabBtn.addEventListener('shown.bs.tab', () => {
+      eventModalDialog.classList.add('modal-fullscreen');
+    });
+  }
+
+  /* ------------------------------------------------------------------
      8) Pre-Fetch All Room Events => store in memory
   ------------------------------------------------------------------ */
   const allEventsMap = {}; 
@@ -295,10 +317,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     localStorage.setItem('selectedRoomIds', JSON.stringify(selectedIds));
 
-    // -------------------------------
     // Use batchRendering to avoid flicker:
-    // re-fetch resources & events in one pass
-    // -------------------------------
     if (window.multiCalendar) {
       window.multiCalendar.batchRendering(() => {
         window.multiCalendar.refetchResources();
