@@ -1,3 +1,11 @@
+// calendar.js (THU version)
+
+/**
+ * Initializes the FullCalendar instance on the #multiCalendar element.
+ * - Uses dynamic resources(...) to show columns only for selected rooms.
+ * - Uses events(...) to only load events for checked rooms.
+ * - Supports drag/drop, resize, select, dateClick, etc.
+ */
 function initCalendar() {
   const multiCalendarEl = document.getElementById('multiCalendar');
   if (!multiCalendarEl) {
@@ -16,7 +24,7 @@ function initCalendar() {
     slotMinTime: '08:00:00',
     slotMaxTime: '18:00:00',
     resourceOrder: 'orderIndex',
-    
+
     // Use the stored view (or default to 'timeGridWeek') on load
     initialView: savedView,
 
@@ -31,25 +39,32 @@ function initCalendar() {
     selectMirror: true,
     selectable: true,
 
-    // Define the rooms as resources for the resourceTimeGridDay view
-    resources: window.rooms.map((r) => ({
-      id: r.id,
-      title: r.summary,
-      orderIndex: r._sortOrder
-    })),
+    /**
+     * resources(...) - Dynamic callback
+     * Only returns resources (rooms) for the checkboxes the user has checked.
+     * That way, if a room is unchecked, its column is fully hidden.
+     */
+    resources(fetchInfo, successCallback, failureCallback) {
+      const checkboxes = document.querySelectorAll('#roomsCheckboxBar input[type="checkbox"]');
+      const selectedRoomIds = Array.from(checkboxes)
+        .filter(ch => ch.checked)
+        .map(ch => ch.value);
 
-    // Called whenever the view changes (including initial load)
-    datesSet(arg) {
-      // Save the user’s chosen view in localStorage
-      const currentViewType = arg.view.type;
-      localStorage.setItem('userSelectedView', currentViewType);
+      const displayedResources = window.rooms
+        .filter(r => selectedRoomIds.includes(r.id))
+        .map(r => ({
+          id: r.id,
+          title: r.summary,
+          orderIndex: r._sortOrder
+        }));
+
+      successCallback(displayedResources);
     },
 
-    /*
-       Build the event list by merging all selected rooms' events.
-       We store realCalendarId in extendedProps so we can open the 
-       correct calendar in eventClick.
-    */
+    /**
+     * events(...) - Returns only the events for the selected rooms.
+     * Each event is assigned resourceId = roomId, so it appears in the correct column.
+     */
     events(info, successCallback) {
       const checkboxes = document.querySelectorAll('#roomsCheckboxBar input[type="checkbox"]');
       const selectedRoomIds = Array.from(checkboxes)
@@ -62,13 +77,12 @@ function initCalendar() {
         for (const ev of roomEvents) {
           mergedEvents.push({
             ...ev,
-            resourceId: roomId, // For resourceTimeGridDay
+            resourceId: roomId,
             backgroundColor: window.roomColors[roomId] || '#333',
             textColor: '#fff',
             extendedProps: {
               ...(ev.extendedProps || {}),
-              // Store the actual calendar ID
-              realCalendarId: roomId
+              realCalendarId: roomId  // store which room it belongs to
             }
           });
         }
@@ -78,13 +92,10 @@ function initCalendar() {
 
     // Prevent selecting in the past
     selectAllow(selectInfo) {
-      if (selectInfo.start < new Date()) {
-        return false;
-      }
-      return true;
+      return selectInfo.start >= new Date();
     },
 
-    // Handling select => open the "create event" modal
+    // User drags to select a time range => create an event
     select(info) {
       const firstSelectedRoomId = getFirstCheckedRoomId();
       if (!firstSelectedRoomId) {
@@ -93,7 +104,6 @@ function initCalendar() {
         return;
       }
 
-      // Overlap check
       if (doesOverlap({ id: 'dummy', source: { id: firstSelectedRoomId } }, info.start, info.end)) {
         window.showToast('Error', 'Time slot overlaps an existing event in that room.');
         window.multiCalendar.unselect();
@@ -107,10 +117,10 @@ function initCalendar() {
       });
     },
 
-    // dateClick also used for quick creation if no range is selected
+    // Clicking a single day cell => quick creation of a 30-minute event
     dateClick(info) {
       const start = info.date;
-      const end   = new Date(start.getTime() + 30 * 60 * 1000);
+      const end = new Date(start.getTime() + 30 * 60 * 1000);
 
       const firstSelectedRoomId = getFirstCheckedRoomId();
       if (!firstSelectedRoomId) {
@@ -118,13 +128,11 @@ function initCalendar() {
         return;
       }
 
-      // Prevent in the past
       if (start < new Date()) {
         window.showToast('Error', 'Cannot create an event in the past.');
         return;
       }
 
-      // Overlap check
       if (doesOverlap({ id: 'dummy', source: { id: firstSelectedRoomId } }, start, end)) {
         window.showToast('Error', 'Time slot overlaps an existing event in that room.');
         return;
@@ -137,26 +145,22 @@ function initCalendar() {
       });
     },
 
-    // eventClick => open the "View Event" modal
+    // Clicking an event => open the "View Event" modal
     eventClick(info) {
       const event = info.event;
-      // Read from extendedProps
       const calendarId = event.extendedProps?.realCalendarId;
-
       if (!calendarId) {
         return;
       }
-
       openViewEventModal(event, calendarId);
     },
 
-    // Dragging an event
+    // Dragging an event to a new time
     eventDrop(info) {
       const event   = info.event;
       const newStart= event.start;
       const newEnd  = event.end || new Date(newStart.getTime() + 30*60*1000);
 
-      // Overlap check
       if (doesOverlap(event, newStart, newEnd)) {
         window.showToast('Error', "This move overlaps another event. Reverting.");
         info.revert();
@@ -239,30 +243,33 @@ function initCalendar() {
     }
   });
 
-  // Render the calendar
+  // Finally, render the calendar
   window.multiCalendar.render();
 }
 
-/* ------------------------------------------------------------------
-   doesOverlap(movingEvent, newStart, newEnd)
-   - Overlap logic for a single room
------------------------------------------------------------------- */
+/**
+ * doesOverlap(movingEvent, newStart, newEnd)
+ * Check if [newStart, newEnd) overlaps an existing event in the same room.
+ */
 function doesOverlap(movingEvent, newStart, newEnd) {
-  const allEvents = window.multiCalendar.getEvents();
-  const newStartMs = newStart.getTime();
-  const newEndMs   = newEnd.getTime();
+  const allEvents   = window.multiCalendar.getEvents();
+  const newStartMs  = newStart.getTime();
+  const newEndMs    = newEnd.getTime();
 
   for (const ev of allEvents) {
+    // Skip if it's the same event being moved
     if (ev.id === movingEvent.id) continue;
 
+    // Must be in the same room
     const evRoomId = ev.extendedProps?.realCalendarId || '';
-    const movingRoomId = movingEvent.extendedProps?.realCalendarId || '';
+    const movingRoomId = movingEvent.extendedProps?.realCalendarId || movingEvent.source?.id || '';
 
     if (evRoomId !== movingRoomId) continue;
 
-    const evStart = ev.start ? ev.start.getTime() : null;
-    const evEnd   = ev.end   ? ev.end.getTime()   : evStart;
+    const evStart = ev.start ? ev.start.getTime() : 0;
+    const evEnd   = ev.end   ? ev.end.getTime()   : evStart; // in case all-day event with no end
 
+    // Basic overlap check
     if (evStart < newEndMs && evEnd > newStartMs) {
       return true;
     }
@@ -270,9 +277,10 @@ function doesOverlap(movingEvent, newStart, newEnd) {
   return false;
 }
 
-/* ------------------------------------------------------------------
-   getFirstCheckedRoomId()
------------------------------------------------------------------- */
+/**
+ * getFirstCheckedRoomId()
+ * Return the ID of the first checked room checkbox.
+ */
 function getFirstCheckedRoomId() {
   const roomsCheckboxBar = document.getElementById('roomsCheckboxBar');
   if (!roomsCheckboxBar) return null;
@@ -281,23 +289,24 @@ function getFirstCheckedRoomId() {
   return checked.length > 0 ? checked[0].value : null;
 }
 
-/* ------------------------------------------------------------------
-   openViewEventModal(event, calendarId)
------------------------------------------------------------------- */
+/**
+ * openViewEventModal(event, calendarId)
+ * Shows a read-only (with possible edit/delete) modal for an existing event.
+ */
 function openViewEventModal(event, calendarId) {
-  const viewEventModalEl      = document.getElementById('viewEventModal');
-  const viewEventTitleEl      = document.getElementById('viewEventTitle');
-  const viewEventRoomEl       = document.getElementById('viewEventRoom');
-  const viewEventAttendeesEl  = document.getElementById('viewEventAttendeesList');
-  const viewEventEditBtn      = document.getElementById('viewEventEditBtn');
-  const viewEventDeleteBtn    = document.getElementById('viewEventDeleteBtn');
-  const viewEventStartTimeEl  = document.getElementById('viewEventStartTime');
-  const viewEventEndTimeEl    = document.getElementById('viewEventEndTime');
-  const colorCircleEl         = viewEventModalEl.querySelector('.color-circle');
-  const viewEventDescriptionRow = document.getElementById('viewEventDescriptionRow');
-  const viewEventDescriptionEl  = document.getElementById('viewEventDescription');
+  const viewEventModalEl       = document.getElementById('viewEventModal');
+  const viewEventTitleEl       = document.getElementById('viewEventTitle');
+  const viewEventRoomEl        = document.getElementById('viewEventRoom');
+  const viewEventAttendeesEl   = document.getElementById('viewEventAttendeesList');
+  const viewEventEditBtn       = document.getElementById('viewEventEditBtn');
+  const viewEventDeleteBtn     = document.getElementById('viewEventDeleteBtn');
+  const viewEventStartTimeEl   = document.getElementById('viewEventStartTime');
+  const viewEventEndTimeEl     = document.getElementById('viewEventEndTime');
+  const colorCircleEl          = viewEventModalEl.querySelector('.color-circle');
+  const viewEventDescriptionRow= document.getElementById('viewEventDescriptionRow');
+  const viewEventDescriptionEl = document.getElementById('viewEventDescription');
 
-  // Room name/color
+  // Room info
   const foundRoom = window.rooms.find(r => r.id === calendarId);
   const roomName  = foundRoom ? foundRoom.summary : "Unknown Room";
   const roomColor = window.roomColors[calendarId] || '#0d6efd';
@@ -305,18 +314,15 @@ function openViewEventModal(event, calendarId) {
   // Title
   viewEventTitleEl.textContent = event.title || 'Untitled';
 
-  // Start/End
+  // Start/End time
   const startTime = event.start ? new Date(event.start) : null;
   const endTime   = event.end   ? new Date(event.end)   : null;
   const formatOpts= { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' };
-
   viewEventStartTimeEl.textContent = startTime ? startTime.toLocaleString([], formatOpts) : 'N/A';
   viewEventEndTimeEl.textContent   = endTime   ? endTime.toLocaleString([], formatOpts)   : 'N/A';
 
-  // Room name
+  // Room name + color circle
   viewEventRoomEl.textContent = roomName;
-
-  // Color circle
   if (colorCircleEl) {
     colorCircleEl.style.backgroundColor = roomColor;
   }
@@ -349,14 +355,15 @@ function openViewEventModal(event, calendarId) {
     viewEventDescriptionRow.classList.add('d-none');
   }
 
-  // Permissions check
+  // Check if user can edit/delete
   const isLinked     = event.extendedProps?.is_linked === 'true';
   const creatorEmail = event.extendedProps?.organizer;
   let canEditOrDelete = true;
 
   if (isLinked) {
-    canEditOrDelete = false;
+    canEditOrDelete = false; // can't edit a "linked" event
   } else {
+    // If user is not the creator and not an attendee => no edit
     if (!rawAttendees.includes(window.currentUserEmail) && creatorEmail !== window.currentUserEmail) {
       canEditOrDelete = false;
     }
@@ -365,7 +372,7 @@ function openViewEventModal(event, calendarId) {
   viewEventEditBtn.style.display   = canEditOrDelete ? 'inline-block' : 'none';
   viewEventDeleteBtn.style.display = canEditOrDelete ? 'inline-block' : 'none';
 
-  // Edit => open the create/edit modal
+  // EDIT => open the create/edit event modal
   viewEventEditBtn.onclick = () => {
     if (!canEditOrDelete) return;
     openEventModal({
@@ -377,12 +384,10 @@ function openViewEventModal(event, calendarId) {
       attendees: rawAttendees,
       description
     });
-
-    // Hide the view modal
     window.viewEventModal.hide();
   };
 
-  // Delete => confirm, then call /api
+  // DELETE => confirm => call deleteEvent
   viewEventDeleteBtn.onclick = async () => {
     if (!canEditOrDelete) return;
     const confirmDelete = confirm('Are you sure you want to delete this event?');
@@ -390,11 +395,11 @@ function openViewEventModal(event, calendarId) {
 
     try {
       await deleteEvent({ calendarId, id: event.id });
-      // Remove from local map
+      // Remove event from local map
       window.allEventsMap[calendarId] = window.allEventsMap[calendarId].filter(ev => ev.id !== event.id);
-      // Refresh the calendar
-      window.multiCalendar.refetchEvents();
 
+      // Refresh
+      window.multiCalendar.refetchEvents();
       window.viewEventModal.hide();
       window.showToast("Deleted", "Event was successfully deleted.");
     } catch (err) {
@@ -406,10 +411,10 @@ function openViewEventModal(event, calendarId) {
   window.viewEventModal.show();
 }
 
-/* ------------------------------------------------------------------
-   openEventModal(...)
-   - Create/edit event modal
------------------------------------------------------------------- */
+/**
+ * openEventModal(...) - Show the "Create/Edit Event" modal.
+ * If eventId is provided, we pre-fill form fields for editing.
+ */
 function openEventModal({ calendarId, eventId, title, start, end, attendees, description }) {
   const {
     eventModal,
@@ -417,24 +422,27 @@ function openEventModal({ calendarId, eventId, title, start, end, attendees, des
     eventIdField,
     eventTitleField,
     eventStartField,
-    eventEndField
+    eventEndField,
+    eventGuestsContainer,
+    eventGuestsInput
   } = window;
 
   const eventRoomSelect       = document.getElementById('eventRoomSelect');
   const roomColorSquare       = document.getElementById('roomColorSquare');
   const eventDescriptionField = document.getElementById('eventDescription');
 
-  // Clear old <option> from the Room <select>
+  // Clear out <select> options first
   eventRoomSelect.innerHTML = '';
 
-  // Figure out which rooms are checked
+  // Which rooms are checked?
   const roomsCheckboxBar = document.getElementById('roomsCheckboxBar');
   const checkboxes = roomsCheckboxBar.querySelectorAll('input[type="checkbox"]');
   const checkedRoomIds = Array.from(checkboxes).filter(ch => ch.checked).map(ch => ch.value);
 
+  // Default selected
   let defaultCalId = calendarId || (checkedRoomIds.length > 0 ? checkedRoomIds[0] : null);
 
-  // Populate the <select>
+  // Populate the <select> with the rooms that exist
   window.rooms.forEach((room) => {
     const option = document.createElement('option');
     option.value = room.id;
@@ -445,6 +453,7 @@ function openEventModal({ calendarId, eventId, title, start, end, attendees, des
     eventRoomSelect.appendChild(option);
   });
 
+  // Update the color square based on selection
   function setSquareColor(calId) {
     const c = window.roomColors[calId] || '#666';
     roomColorSquare.style.backgroundColor = c;
@@ -476,7 +485,7 @@ function openEventModal({ calendarId, eventId, title, start, end, attendees, des
       eventEndField.value = '';
     }
   } else {
-    // editing => keep existing times
+    // Editing => keep existing times if not set
     if (!eventStartField.value && start) {
       eventStartField.value = window.toLocalDateTimeInput(new Date(start));
     }
@@ -485,7 +494,7 @@ function openEventModal({ calendarId, eventId, title, start, end, attendees, des
     }
   }
 
-  // Pre-populate attendees
+  // Pre-populate attendees if editing
   if (attendees && attendees.length > 0) {
     attendees.forEach(email => {
       const existing = window.inviteChips.find(ch => ch.email === email);
@@ -504,11 +513,12 @@ function openEventModal({ calendarId, eventId, title, start, end, attendees, des
     window.renderChipsUI();
   }
 
+  // Fill in description
   if (!eventId || !eventDescriptionField.value) {
     eventDescriptionField.value = description || '';
   }
 
-  // Force "Event Details" tab
+  // Force "Event Details" tab in the modal
   const locationTabBtn = document.getElementById('location-tab');
   const blankTabBtn    = document.getElementById('blank-tab');
   const locationPane   = document.getElementById('location');
@@ -519,13 +529,14 @@ function openEventModal({ calendarId, eventId, title, start, end, attendees, des
   locationTabBtn.classList.add('active');
   locationPane.classList.add('show', 'active');
 
+  // Finally, show the modal
   eventModal.show();
 }
 
-/* ------------------------------------------------------------------
-   createEvent(...) / updateEvent(...) / deleteEvent(...)
-   - CRUD calls to /api
------------------------------------------------------------------- */
+/**
+ * createEvent(...)
+ * POST to /api/create_event
+ */
 async function createEvent({ calendarId, title, start, end, participants, description }) {
   return window.fetchJSON('/api/create_event', {
     method: 'POST',
@@ -534,6 +545,10 @@ async function createEvent({ calendarId, title, start, end, participants, descri
   });
 }
 
+/**
+ * updateEvent(...)
+ * PUT to /api/update_event
+ */
 async function updateEvent({ calendarId, eventId, title, start, end, participants, description }) {
   return window.fetchJSON('/api/update_event', {
     method: 'PUT',
@@ -542,6 +557,10 @@ async function updateEvent({ calendarId, eventId, title, start, end, participant
   });
 }
 
+/**
+ * deleteEvent(...)
+ * DELETE to /api/delete_event
+ */
 async function deleteEvent({ calendarId, id }) {
   return window.fetchJSON('/api/delete_event', {
     method: 'DELETE',
@@ -550,10 +569,10 @@ async function deleteEvent({ calendarId, id }) {
   });
 }
 
-// Expose main functions
-window.initCalendar        = initCalendar;
-window.openViewEventModal  = openViewEventModal;
-window.openEventModal      = openEventModal;
-window.createEvent         = createEvent;
-window.updateEvent         = updateEvent;
-window.deleteEvent         = deleteEvent;
+// Expose these functions globally
+window.initCalendar       = initCalendar;
+window.openViewEventModal = openViewEventModal;
+window.openEventModal     = openEventModal;
+window.createEvent        = createEvent;
+window.updateEvent        = updateEvent;
+window.deleteEvent        = deleteEvent;

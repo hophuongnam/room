@@ -1,5 +1,5 @@
 /* ------------------------------------------------------------------
-   main.js
+   main.js (THU version)
    - Handles general UI setup (login/logout, user checks, rooms fetch)
    - Provides helpers like fetchJSON, showToast, showSpinner, etc.
    - Exposes data & functions for calendar.js
@@ -266,8 +266,9 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     chk.addEventListener('change', (e) => {
       // If user tries to uncheck and it's the last one, revert
+      const checkboxes = roomsCheckboxBar.querySelectorAll('input[type="checkbox"]');
       if (!e.target.checked) {
-        const stillChecked = Array.from(roomsCheckboxBar.querySelectorAll('input[type="checkbox"]'))
+        const stillChecked = Array.from(checkboxes)
           .filter(c => c.checked && c !== e.target);
         if (stillChecked.length === 0) {
           e.target.checked = true;
@@ -293,10 +294,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       .map(ch => ch.value);
 
     localStorage.setItem('selectedRoomIds', JSON.stringify(selectedIds));
-    // Re-render the calendar (it will call events() again)
+
+    // -------------------------------
+    // Use batchRendering to avoid flicker:
+    // re-fetch resources & events in one pass
+    // -------------------------------
     if (window.multiCalendar) {
-      window.multiCalendar.refetchEvents();
+      window.multiCalendar.batchRendering(() => {
+        window.multiCalendar.refetchResources();
+        window.multiCalendar.refetchEvents();
+      });
     }
+
     updateSingleRoomName(selectedIds);
   }
 
