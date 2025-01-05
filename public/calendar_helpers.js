@@ -16,11 +16,11 @@ function getFirstCheckedRoomId() {
 }
 
 /**
- * [ADDED] Return color of the first checked room, or fallback if none
+ * Return the color of the first checked room, or a fallback color if none
  */
 function getFirstCheckedRoomColor() {
   const roomId = getFirstCheckedRoomId();
-  if (!roomId) return '#666'; // fallback color if none is checked
+  if (!roomId) return '#666'; // fallback color if no room is checked
   return window.roomColors && window.roomColors[roomId]
     ? window.roomColors[roomId]
     : '#666';
@@ -338,7 +338,7 @@ function openEventModal({ calendarId, eventId, title, start, end, attendees, des
 ------------------------------------------------------------------ */
 window.calendarHelpers = {
   getFirstCheckedRoomId,
-  getFirstCheckedRoomColor, // [ADDED EXPORT]
+  getFirstCheckedRoomColor,
   doesOverlap,
   createEvent,
   updateEvent,

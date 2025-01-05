@@ -1,3 +1,12 @@
+/* ------------------------------------------------------------------
+   calendar.js
+   - Initializes the FullCalendar instance (multiCalendar).
+   - Persists the user-selected view (day/week/month) in localStorage.
+   - Different behavior for resource vs. non-resource views:
+     - Resource: selectMirror = true, can confirm info.resource
+     - Non-resource: selectMirror = false + real-time highlight hack
+------------------------------------------------------------------ */
+
 function initCalendar() {
   const multiCalendarEl = document.getElementById('multiCalendar');
   if (!multiCalendarEl) {
@@ -5,7 +14,7 @@ function initCalendar() {
     return;
   }
 
-  // Destructure helper methods from your global object
+  // Destructure the helper methods from the global object (calendar_helpers.js)
   const {
     getFirstCheckedRoomId,
     getFirstCheckedRoomColor,
@@ -14,7 +23,7 @@ function initCalendar() {
     openViewEventModal,
     updateEvent,
     deleteEvent
-  } = window.calendarHelpers;
+  } = window.calendarHelpers; 
 
   // Retrieve the last used view from localStorage, or default to 'timeGridWeek'
   const savedView = localStorage.getItem('userSelectedView') || 'timeGridWeek';
@@ -39,10 +48,28 @@ function initCalendar() {
 
     editable: true,
     eventResizableFromStart: true,
-
-    // Key change: no mirror, so we rely on .fc-highlight
     selectable: true,
-    selectMirror: false, // ensure we get the highlight rectangle
+
+    // "global" default if not overridden by a view:
+    selectMirror: false,
+
+    // You can override per-view using the 'views' config:
+    views: {
+      // For resource-based views, we want mirror
+      resourceTimeGridDay: {
+        selectMirror: true
+      },
+      resourceTimeGridWeek: {
+        selectMirror: true
+      },
+      // For normal timeGrid / dayGrid, let it default to false
+      timeGridWeek: {
+        // selectMirror: false  // (already default)
+      },
+      dayGridMonth: {
+        // ...
+      }
+    },
 
     resources(fetchInfo, successCallback, failureCallback) {
       const checkboxes = document.querySelectorAll('#roomsCheckboxBar input[type="checkbox"]');
@@ -86,13 +113,18 @@ function initCalendar() {
       successCallback(mergedEvents);
     },
 
-    // Disallow selecting in the past
+    // Disallow selecting time in the past
     selectAllow(selectInfo) {
       return selectInfo.start >= new Date();
     },
 
-    // Called after user finishes drag-select
+    // Called when user drag-selects a time range
     select(info) {
+      // If in resource view, we can confirm resource:
+      if (info.resource) {
+        console.log("User drag-selected on resource:", info.resource.id);
+      }
+
       const firstRoomId = getFirstCheckedRoomId();
       if (!firstRoomId) {
         window.showToast('Notice', 'No room selected.');
@@ -108,7 +140,7 @@ function initCalendar() {
         return;
       }
 
-      // Finally open the create-event modal
+      // Open "create event" modal
       openEventModal({
         calendarId: firstRoomId,
         start: info.start,
@@ -143,14 +175,22 @@ function initCalendar() {
     },
 
     eventClick(info) {
-      const event = info.event;
-      const calendarId = event.extendedProps?.realCalendarId;
+      // Resource ID for existing event => info.event.getResources() or ._def.resourceIds
+      if (info.event._def && info.event._def.resourceIds) {
+        console.log("Clicked event's resource IDs:", info.event._def.resourceIds);
+      }
+
+      const calendarId = info.event.extendedProps?.realCalendarId;
       if (!calendarId) return;
-      openViewEventModal(event, calendarId);
+      openViewEventModal(info.event, calendarId);
     },
 
-    // Drag an event => update
     eventDrop(info) {
+      // If event was moved to another resource:
+      if (info.newResource) {
+        console.log("Event moved to new resource:", info.newResource.id);
+      }
+
       const event = info.event;
       const newStart = event.start;
       const newEnd = event.end || new Date(newStart.getTime() + 30 * 60 * 1000);
@@ -191,7 +231,6 @@ function initCalendar() {
       }, 0);
     },
 
-    // Resize an event => update
     eventResize(info) {
       const event = info.event;
       const newStart = event.start;
@@ -237,46 +276,46 @@ function initCalendar() {
       }, 0);
     },
 
-    // store the new view type in localStorage
+    // Save user-chosen view in localStorage
     viewDidMount(args) {
       localStorage.setItem('userSelectedView', args.view.type);
     }
   });
 
-  // Render
+  // Finally, render the calendar
   window.multiCalendar.render();
 
   /* ------------------------------------------------------------------
-     REAL-TIME HACK: Color the .fc-highlight as user drags
-     We'll use a MutationObserver or a mousemove approach.
+     REAL-TIME HIGHLIGHT "HACK" FOR NON-RESOURCE VIEWS
+     Only relevant if selectMirror: false
   ------------------------------------------------------------------ */
-
-  // Function that sets highlight color
+  // 1) Function to color all .fc-highlight elements
   function colorHighlightEls() {
     const color = getFirstCheckedRoomColor();
     const highlights = document.querySelectorAll('.fc-highlight');
     highlights.forEach(el => {
       el.style.backgroundColor = color;
-      el.style.opacity = '0.3'; // or 0.5, adjust to taste
+      el.style.opacity = '0.3'; // tweak as needed
     });
   }
 
-  // 1) Observe DOM changes in .fc-view-harness
+  // 2) Observe DOM changes in the FullCalendar container => color highlights
   const fcContainer = document.querySelector('.fc-view-harness');
   if (fcContainer) {
-    const observer = new MutationObserver((mutations) => {
-      // Whenever there's a change (new highlight, etc.), color them
+    const observer = new MutationObserver(() => {
+      // whenever new highlight elements are inserted
       colorHighlightEls();
     });
     observer.observe(fcContainer, {
       childList: true,
       subtree: true
     });
-  }
 
-  // 2) Also handle mousemove for better real-time re-coloring
-  //    (especially if highlights re-render while dragging)
-  if (fcContainer) {
+    // Also color in response to mouse movements, so if FullCalendar re-renders
+    // mid-drag, we keep recoloring in real-time
     fcContainer.addEventListener('mousemove', colorHighlightEls);
   }
 }
+
+/* Expose initCalendar to the global scope */
+window.initCalendar = initCalendar;
