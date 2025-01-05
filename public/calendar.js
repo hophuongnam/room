@@ -1,10 +1,9 @@
 /* ------------------------------------------------------------------
-   calendar.js
-   - Single FullCalendar instance that can switch between resourceTimeGridDay
-     and timeGridWeek (and optionally dayGridMonth), using one unified
-     events definition.
-   - Incorporates the same create/edit/delete logic on a single instance,
-     plus "resourceOrder" to keep day view consistent with checkboxes.
+   calendar.js (TOT Version, with persisted user view in localStorage)
+   - Single FullCalendar instance that can switch between resourceTimeGridDay,
+     timeGridWeek, or dayGridMonth, while remembering the last-chosen view.
+   - Uses extendedProps.realCalendarId to store the calendar ID.
+   - Includes localStorage logic to persist the chosen view.
 ------------------------------------------------------------------ */
 
 function initCalendar() {
@@ -14,6 +13,9 @@ function initCalendar() {
     return;
   }
 
+  // Retrieve last used view from localStorage, default to 'timeGridWeek'
+  const savedView = localStorage.getItem('userSelectedView') || 'timeGridWeek';
+
   window.multiCalendar = new FullCalendar.Calendar(multiCalendarEl, {
     schedulerLicenseKey: 'GPL-My-Project-Is-Open-Source', // or your license key
     timeZone: 'local',
@@ -21,8 +23,11 @@ function initCalendar() {
     nowIndicator: true,
     slotMinTime: '08:00:00',
     slotMaxTime: '18:00:00',
-    resourceOrder: 'orderIndex', // Ensure resourceTimeGridDay follows same order
-    initialView: 'timeGridWeek',
+    resourceOrder: 'orderIndex',
+    
+    // Use the stored view (or default to 'timeGridWeek') on load
+    initialView: savedView,
+
     firstDay: 1,
     headerToolbar: {
       left: 'prev,next today',
@@ -38,15 +43,23 @@ function initCalendar() {
     resources: window.rooms.map((r) => ({
       id: r.id,
       title: r.summary,
-      // attach the same numeric order => resourceOrder uses 'orderIndex'
       orderIndex: r._sortOrder
     })),
 
-    // A single "events" callback that merges all events, filtered by user selections
+    // Called whenever the view changes (including initial load)
+    datesSet(arg) {
+      // Save the user’s chosen view in localStorage
+      const currentViewType = arg.view.type;
+      localStorage.setItem('userSelectedView', currentViewType);
+    },
+
+    /* 
+       Build the event list by merging all selected rooms' events.
+       We store realCalendarId in extendedProps so we can open the 
+       correct calendar in eventClick.
+    */
     events(info, successCallback) {
-      const checkboxes = document.querySelectorAll(
-        '#roomsCheckboxBar input[type="checkbox"]'
-      );
+      const checkboxes = document.querySelectorAll('#roomsCheckboxBar input[type="checkbox"]');
       const selectedRoomIds = Array.from(checkboxes)
         .filter(ch => ch.checked)
         .map(ch => ch.value);
@@ -57,9 +70,14 @@ function initCalendar() {
         for (const ev of roomEvents) {
           mergedEvents.push({
             ...ev,
-            resourceId: roomId, // So resource view lines up the event with this room
+            resourceId: roomId, // For resourceTimeGridDay
             backgroundColor: window.roomColors[roomId] || '#333',
-            textColor: '#fff'
+            textColor: '#fff',
+            extendedProps: {
+              ...(ev.extendedProps || {}),
+              // Store the actual calendar ID
+              realCalendarId: roomId
+            }
           });
         }
       }
@@ -127,12 +145,15 @@ function initCalendar() {
       });
     },
 
-    // eventClick => open the "view event" modal
+    // eventClick => open the "View Event" modal
     eventClick(info) {
       const event = info.event;
-      // We store the 'calendarId' in the 'resource' id or in 'source' id
-      const calendarId = event.resource?.id || event.source?.id;
-      if (!calendarId) return;
+      // Read from extendedProps
+      const calendarId = event.extendedProps?.realCalendarId;
+
+      if (!calendarId) {
+        return;
+      }
 
       openViewEventModal(event, calendarId);
     },
@@ -150,7 +171,7 @@ function initCalendar() {
         return;
       }
 
-      const roomId = event.resource?.id || event.source?.id;
+      const roomId = event.extendedProps?.realCalendarId;
       if (!roomId) {
         info.revert();
         return;
@@ -196,7 +217,7 @@ function initCalendar() {
         return;
       }
 
-      const roomId = event.resource?.id || event.source?.id;
+      const roomId = event.extendedProps?.realCalendarId;
       if (!roomId) {
         info.revert();
         return;
@@ -242,9 +263,9 @@ function doesOverlap(movingEvent, newStart, newEnd) {
   for (const ev of allEvents) {
     if (ev.id === movingEvent.id) continue;
 
-    // Must be the same room
-    const evRoomId = ev.resource?.id || ev.source?.id || '';
-    const movingRoomId = movingEvent.resource?.id || movingEvent.source?.id || '';
+    const evRoomId = ev.extendedProps?.realCalendarId || '';
+    const movingRoomId = movingEvent.extendedProps?.realCalendarId || '';
+
     if (evRoomId !== movingRoomId) continue;
 
     const evStart = ev.start ? ev.start.getTime() : null;
@@ -259,7 +280,6 @@ function doesOverlap(movingEvent, newStart, newEnd) {
 
 /* ------------------------------------------------------------------
    getFirstCheckedRoomId()
-   - returns the first checked room ID from #roomsCheckboxBar
 ------------------------------------------------------------------ */
 function getFirstCheckedRoomId() {
   const roomsCheckboxBar = document.getElementById('roomsCheckboxBar');
@@ -271,7 +291,6 @@ function getFirstCheckedRoomId() {
 
 /* ------------------------------------------------------------------
    openViewEventModal(event, calendarId)
-   - Displays a modal with details about the event
 ------------------------------------------------------------------ */
 function openViewEventModal(event, calendarId) {
   const viewEventModalEl      = document.getElementById('viewEventModal');
@@ -367,8 +386,8 @@ function openViewEventModal(event, calendarId) {
       description
     });
 
-    const modalInstance = bootstrap.Modal.getInstance(viewEventModalEl);
-    if (modalInstance) modalInstance.hide();
+    // Hide the view modal
+    window.viewEventModal.hide();
   };
 
   // Delete => confirm, then call /api
@@ -384,17 +403,15 @@ function openViewEventModal(event, calendarId) {
       // Refresh the calendar
       window.multiCalendar.refetchEvents();
 
-      const modalInstance = bootstrap.Modal.getInstance(viewEventModalEl);
-      if (modalInstance) modalInstance.hide();
+      window.viewEventModal.hide();
       window.showToast("Deleted", "Event was successfully deleted.");
     } catch (err) {
       window.showError(`Failed to delete event: ${err.message}`);
     }
   };
 
-  // Show the modal
-  const bsModal = new bootstrap.Modal(viewEventModalEl);
-  bsModal.show();
+  // Show the "View Event" modal
+  window.viewEventModal.show();
 }
 
 /* ------------------------------------------------------------------
@@ -515,7 +532,7 @@ function openEventModal({ calendarId, eventId, title, start, end, attendees, des
 
 /* ------------------------------------------------------------------
    createEvent(...) / updateEvent(...) / deleteEvent(...)
-   - CRUD calls to your /api endpoints
+   - CRUD calls to /api
 ------------------------------------------------------------------ */
 async function createEvent({ calendarId, title, start, end, participants, description }) {
   return window.fetchJSON('/api/create_event', {
@@ -541,7 +558,7 @@ async function deleteEvent({ calendarId, id }) {
   });
 }
 
-// Expose main functions so main.js can call them
+// Expose main functions
 window.initCalendar        = initCalendar;
 window.openViewEventModal  = openViewEventModal;
 window.openEventModal      = openEventModal;
