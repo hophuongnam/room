@@ -25,6 +25,7 @@ function initCalendar() {
     slotMinTime: '08:00:00',
     slotMaxTime: '18:00:00',
     initialView: savedView,
+    resourceOrder: 'orderIndex',
     firstDay: 1,
 
     headerToolbar: {
