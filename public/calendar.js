@@ -1,16 +1,3 @@
-/* ------------------------------------------------------------------
-   calendar.js
-
-   - Fix for the "first drag uses old ID" in resource mirror events.
-   - We store the resource ID in 'selectAllow' so it's correct from the start.
-   - Then 'eventDidMount' for the mirror references that global.
-   - Finally, 'select' runs after the user finishes dragging.
-
-   Also includes:
-   - Non-resource real-time highlight hack for .fc-highlight
-   - Resource-based mirror coloring (once)
------------------------------------------------------------------- */
-
 function initCalendar() {
   const multiCalendarEl = document.getElementById('multiCalendar');
   if (!multiCalendarEl) {
@@ -18,7 +5,6 @@ function initCalendar() {
     return;
   }
 
-  // Destructure helper methods from your calendar_helpers.js
   const {
     getFirstCheckedRoomId,
     getFirstCheckedRoomColor,
@@ -29,15 +15,12 @@ function initCalendar() {
     deleteEvent
   } = window.calendarHelpers;
 
-  // Retrieve the last used view
+  // Use localStorage or default
   const savedView = localStorage.getItem('userSelectedView') || 'timeGridWeek';
 
-  // Global variable that gets updated during drag
-  window.currentMirrorResourceId = null;
-
-  // Create the FullCalendar instance
+  // Create FullCalendar
   window.multiCalendar = new FullCalendar.Calendar(multiCalendarEl, {
-    schedulerLicenseKey: 'GPL-My-Project-Is-Open-Source', // or your own key
+    schedulerLicenseKey: 'GPL-My-Project-Is-Open-Source',
     timeZone: 'local',
     height: 'auto',
     nowIndicator: true,
@@ -53,24 +36,19 @@ function initCalendar() {
       right:  'resourceTimeGridDay,timeGridWeek,dayGridMonth'
     },
 
+    // We turn OFF mirror in all views => highlight rectangles
+    selectable: true,
+    selectMirror: false,
     editable: true,
     eventResizableFromStart: true,
-    selectable: true,
 
-    // By default, no mirror => non-resource views
-    selectMirror: false,
-
-    // Override for resource views
     views: {
-      resourceTimeGridDay: {
-        selectMirror: true
-      },
-      resourceTimeGridWeek: {
-        selectMirror: true
-      }
+      // If you want to keep them all highlight-based, no overrides needed
+      // resourceTimeGridDay: { selectMirror: false },  // default is already false globally
+      // resourceTimeGridWeek: { selectMirror: false }
     },
 
-    // Dynamically load the resources from your rooms
+    // Load resources from your rooms
     resources(fetchInfo, successCallback, failureCallback) {
       const checkboxes = document.querySelectorAll('#roomsCheckboxBar input[type="checkbox"]');
       const selectedRoomIds = Array.from(checkboxes)
@@ -88,7 +66,7 @@ function initCalendar() {
       successCallback(displayedResources);
     },
 
-    // Merge events from each checked room
+    // Merge events from the checked rooms
     events(fetchInfo, successCallback, failureCallback) {
       const checkboxes = document.querySelectorAll('#roomsCheckboxBar input[type="checkbox"]');
       const selectedRoomIds = Array.from(checkboxes)
@@ -114,32 +92,23 @@ function initCalendar() {
       successCallback(mergedEvents);
     },
 
-    /* ------------------------------------------------------------------
-       1) SELECTALLOW => store resource ID in window.currentMirrorResourceId
-          So the mirror event will see the correct ID from the start.
-    ------------------------------------------------------------------ */
     selectAllow(selectInfo) {
-      // If resource-based => store that ID
-      if (selectInfo.resource) {
-        window.currentMirrorResourceId = selectInfo.resource.id;
-      } else {
-        // Non-resource => fallback to first checked
-        window.currentMirrorResourceId = getFirstCheckedRoomId();
-      }
-      // Also disallow selecting in the past, etc.
+      // disallow past
       return selectInfo.start >= new Date();
     },
 
-    /* ------------------------------------------------------------------
-       2) select => user finishes drag
-          We create the event for whichever resource/room is stored
-          in currentMirrorResourceId (or re-derive it if you prefer).
-    ------------------------------------------------------------------ */
+    // Called when user finishes drag-select
     select(info) {
-      const chosenRoomId = window.currentMirrorResourceId;
-      // Alternatively, you could do the same logic again:
-      //   if (info.resource) { chosenRoomId = info.resource.id; } ...
-      // but let's just trust selectAllow.
+      // If resource-based => we have info.resource.id
+      let chosenRoomId;
+      if (info.resource) {
+        chosenRoomId = info.resource.id;
+        console.log("User drag-selected resource:", chosenRoomId);
+      } else {
+        // Non-resource => fallback
+        chosenRoomId = getFirstCheckedRoomId();
+        console.log("Non-resource => first checked room:", chosenRoomId);
+      }
 
       if (!chosenRoomId) {
         window.showToast('Notice', 'No room selected.');
@@ -150,88 +119,66 @@ function initCalendar() {
       // Overlap check
       const dummyEvent = { id: 'dummy', extendedProps: { realCalendarId: chosenRoomId } };
       if (doesOverlap(dummyEvent, info.start, info.end)) {
-        window.showToast('Error', 'Time slot overlaps an existing event in that room.');
+        window.showToast('Error', 'Overlaps an existing event in that room.');
         window.multiCalendar.unselect();
         return;
       }
 
-      // Show the create-event modal
+      // Create
       openEventModal({
         calendarId: chosenRoomId,
         start: info.start,
-        end:   info.end
+        end: info.end
       });
     },
 
-    // dateClick => simpler "click to create" scenario (optional)
     dateClick(info) {
-      // Usually overshadowed by "select" in resourceTimeGridDay
+      // simpler "click to create"
       const start = info.date;
       const end   = new Date(start.getTime() + 30 * 60 * 1000);
-      const firstRoomId = getFirstCheckedRoomId();
-      if (!firstRoomId) {
+      let chosenRoomId = getFirstCheckedRoomId();
+      if (!chosenRoomId) {
         window.showToast('Notice', 'No room selected.');
         return;
       }
+
       if (start < new Date()) {
         window.showToast('Error', 'Cannot create an event in the past.');
         return;
       }
-      const dummyEvent = { id: 'dummy', extendedProps: { realCalendarId: firstRoomId } };
+
+      const dummyEvent = { id: 'dummy', extendedProps: { realCalendarId: chosenRoomId } };
       if (doesOverlap(dummyEvent, start, end)) {
-        window.showToast('Error', 'Time slot overlaps an existing event in that room.');
+        window.showToast('Error', 'Overlap detected. Reverting.');
         return;
       }
+
       openEventModal({
-        calendarId: firstRoomId,
+        calendarId: chosenRoomId,
         start,
         end
       });
     },
 
-    /* ------------------------------------------------------------------
-       3) eventDidMount => color the mirror event once
-          Now that window.currentMirrorResourceId is set in selectAllow,
-          The first drag will have the correct ID from the start.
-    ------------------------------------------------------------------ */
-    eventDidMount(info) {
-      if (info.isMirror) {
-        // Because resourceIds might be [], let's rely on currentMirrorResourceId
-        const fallbackId = window.currentMirrorResourceId;
-        if (fallbackId) {
-          const color = window.roomColors[fallbackId] || '#666';
-          info.el.style.backgroundColor = color;
-          info.el.style.opacity = '0.8';
-          info.el.style.color = '#fff';
-        }
-      }
-    },
-
-    // eventClick => open read-only event modal
     eventClick(info) {
-      if (info.event._def && info.event._def.resourceIds) {
-        console.log("Clicked event's resource IDs:", info.event._def.resourceIds);
-      }
-      const calendarId = info.event.extendedProps?.realCalendarId;
-      if (!calendarId) return;
-      openViewEventModal(info.event, calendarId);
+      const calId = info.event.extendedProps?.realCalendarId;
+      if (!calId) return;
+      openViewEventModal(info.event, calId);
     },
 
-    // eventDrop => move an event
     eventDrop(info) {
-      if (info.newResource) {
-        console.log("Event moved to new resource:", info.newResource.id);
-      }
+      // user dragged an existing event
       const event = info.event;
+      if (info.newResource) {
+        console.log("Moved to resource:", info.newResource.id);
+      }
       const newStart = event.start;
-      const newEnd = event.end || new Date(newStart.getTime() + 30 * 60 * 1000);
-
+      const newEnd   = event.end || new Date(newStart.getTime() + 30 * 60 * 1000);
       if (doesOverlap(event, newStart, newEnd)) {
-        window.showToast('Error', 'This move overlaps another event. Reverting.');
+        window.showToast('Error', 'Overlap. Reverting.');
         info.revert();
         return;
       }
-
       const roomId = event.extendedProps?.realCalendarId;
       if (!roomId) {
         info.revert();
@@ -250,11 +197,11 @@ function initCalendar() {
             participants: event.extendedProps.attendees || [],
             description: event.extendedProps.description || ""
           });
-          window.showToast('Updated', 'Event was successfully moved.');
+          window.showToast('Updated', 'Event moved.');
           await window.resyncSingleRoom(roomId);
           window.multiCalendar.refetchEvents();
         } catch (err) {
-          window.showError(`Failed to move event: ${err.message}`);
+          window.showError(`Failed: ${err.message}`);
           info.revert();
         } finally {
           window.hideSpinner();
@@ -262,22 +209,20 @@ function initCalendar() {
       }, 0);
     },
 
-    // eventResize => user extended/shortened an event
     eventResize(info) {
+      // resizing
       const event = info.event;
       const newStart = event.start;
-      const newEnd = event.end;
+      const newEnd   = event.end;
       if (!newEnd) {
         info.revert();
         return;
       }
-
       if (doesOverlap(event, newStart, newEnd)) {
-        window.showToast('Error', 'Resized event overlaps another. Reverting.');
+        window.showToast('Error', 'Overlap. Reverting.');
         info.revert();
         return;
       }
-
       const roomId = event.extendedProps?.realCalendarId;
       if (!roomId) {
         info.revert();
@@ -296,11 +241,11 @@ function initCalendar() {
             participants: event.extendedProps.attendees || [],
             description: event.extendedProps.description || ""
           });
-          window.showToast('Updated', 'Event was resized successfully.');
+          window.showToast('Updated', 'Event resized.');
           await window.resyncSingleRoom(roomId);
           window.multiCalendar.refetchEvents();
         } catch (err) {
-          window.showError(`Failed to resize event: ${err.message}`);
+          window.showError(`Resize failed: ${err.message}`);
           info.revert();
         } finally {
           window.hideSpinner();
@@ -308,7 +253,6 @@ function initCalendar() {
       }, 0);
     },
 
-    // Fired after the calendar's view changes
     viewDidMount(args) {
       localStorage.setItem('userSelectedView', args.view.type);
     }
@@ -318,27 +262,44 @@ function initCalendar() {
   window.multiCalendar.render();
 
   /* ------------------------------------------------------------------
-     REAL-TIME HIGHLIGHT "HACK" FOR NON-RESOURCE VIEWS
+     REAL-TIME HIGHLIGHT HACK
+     For resource view, each column has data-resource-id => we can color
+     the highlight to match that resource column's color.
   ------------------------------------------------------------------ */
   function colorHighlightEls() {
-    const color = getFirstCheckedRoomColor();
-    const highlights = document.querySelectorAll('.fc-highlight');
-    highlights.forEach(el => {
-      el.style.backgroundColor = color;
-      el.style.opacity = '0.3';
+    const highlightEls = document.querySelectorAll('.fc-highlight');
+    highlightEls.forEach(highlightEl => {
+      // Resource columns typically have .fc-timegrid-col[data-resource-id="X"]
+      // The highlight is nested inside that col. We find it:
+      const resourceCol = highlightEl.closest('[data-resource-id]');
+
+      if (resourceCol) {
+        // If found => color by resource ID
+        const resourceId = resourceCol.getAttribute('data-resource-id');
+        const color = window.roomColors[resourceId] || '#666';
+        highlightEl.style.backgroundColor = color;
+        highlightEl.style.opacity = '0.3';
+      } else {
+        // If not found => fallback to the "first checked room" color (non-resource)
+        const fallbackColor = getFirstCheckedRoomColor();
+        highlightEl.style.backgroundColor = fallbackColor;
+        highlightEl.style.opacity = '0.3';
+      }
     });
   }
 
   const fcContainer = document.querySelector('.fc-view-harness');
   if (fcContainer) {
+    // watch for new highlight elements
     const observer = new MutationObserver(() => {
       colorHighlightEls();
     });
     observer.observe(fcContainer, { childList: true, subtree: true });
 
+    // also re-color on mousemove
     fcContainer.addEventListener('mousemove', colorHighlightEls);
   }
 }
 
-/* Expose initCalendar to the global scope */
+/* Expose it if needed */
 window.initCalendar = initCalendar;
