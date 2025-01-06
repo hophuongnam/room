@@ -154,7 +154,7 @@ function openViewEventModal(event, calendarId) {
   }
 
   // Permissions
-  const isLinked     = event.extendedProps?.is_linked === 'true';
+  const isLinked     = event.extendedProps?.is_linked || false;
   const creatorEmail = event.extendedProps?.organizer;
   let canEditOrDelete = true;
 
