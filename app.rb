@@ -591,10 +591,12 @@ put '/api/update_event' do
   is_linked     = (priv_props['is_linked'] == 'true')
   creator_email = priv_props['creator_email']
 
+  # If it's a linked event => block editing
   if is_linked
     halt 403, { error: 'Cannot edit a linked event directly. Edit the original event.' }.to_json
   end
 
+  # Check if current user is in attendees or is the creator
   all_attendees = (existing_event.attendees || []).map(&:email)
   unless all_attendees.include?(user_email) || (creator_email == user_email)
     halt 403, { error: 'You do not have permission to update this event' }.to_json
@@ -605,27 +607,38 @@ put '/api/update_event' do
     start_time_utc = Time.parse(new_start_time_str).utc
     end_time_utc   = Time.parse(new_end_time_str).utc
 
+    # Reject if the new start is still in the past
+    if start_time_utc < Time.now.utc
+      halt 400, { error: 'Cannot set event start time in the past.' }.to_json
+    end
+
     # Overlap check
     if events_overlap?(calendar_id, start_time_utc, end_time_utc, event_id)
       halt 409, { error: 'Time slot overlaps an existing event' }.to_json
     end
 
+    # Update the existing event object
     existing_event.start.date_time = start_time_utc.iso8601
     existing_event.end.date_time   = end_time_utc.iso8601
   end
 
+  # Update other fields (title, description, attendees)
   updated_attendees_emails = (participants + [creator_email]).uniq.reject(&:empty?)
   existing_event.summary     = title
   existing_event.description = description
   existing_event.attendees   = updated_attendees_emails.map { |em| { email: em } }
 
-  # Keep the location updated as well
+  # Also update location if desired. For consistency, you might do:
   new_location = $rooms_data[calendar_id][:calendar_info][:summary] rescue 'Updated Room'
   existing_event.location = new_location
 
+  # Perform the update
   result = service.update_event(calendar_id, event_id, existing_event)
+
+  # Sync linked events if you have that logic
   sync_linked_events(calendar_id, event_id, result.summary, updated_attendees_emails, result.location, service, description)
 
+  # Update your local memory cache
   updated_events = fetch_events_for_calendar(calendar_id, service)
   if $rooms_data[calendar_id]
     $rooms_data[calendar_id][:events]       = updated_events

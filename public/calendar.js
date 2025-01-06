@@ -1,3 +1,4 @@
+// --calendar.js--
 function initCalendar() {
   const multiCalendarEl = document.getElementById('multiCalendar');
   if (!multiCalendarEl) {
@@ -11,8 +12,7 @@ function initCalendar() {
     doesOverlap,
     openEventModal,
     openViewEventModal,
-    updateEvent,
-    deleteEvent
+    updateEvent
   } = window.calendarHelpers;
 
   // Use localStorage or default
@@ -43,13 +43,11 @@ function initCalendar() {
     eventResizableFromStart: true,
 
     views: {
-      // If you want to keep them all highlight-based, no overrides needed
-      // resourceTimeGridDay: { selectMirror: false },  // default is already false globally
-      // resourceTimeGridWeek: { selectMirror: false }
+      // If you want all highlight-based, no overrides needed
     },
 
     // Load resources from your rooms
-    resources(fetchInfo, successCallback, failureCallback) {
+    resources(fetchInfo, successCallback) {
       const checkboxes = document.querySelectorAll('#roomsCheckboxBar input[type="checkbox"]');
       const selectedRoomIds = Array.from(checkboxes)
         .filter(ch => ch.checked)
@@ -67,7 +65,7 @@ function initCalendar() {
     },
 
     // Merge events from the checked rooms
-    events(fetchInfo, successCallback, failureCallback) {
+    events(fetchInfo, successCallback) {
       const checkboxes = document.querySelectorAll('#roomsCheckboxBar input[type="checkbox"]');
       const selectedRoomIds = Array.from(checkboxes)
         .filter(ch => ch.checked)
@@ -77,6 +75,7 @@ function initCalendar() {
       for (const roomId of selectedRoomIds) {
         const roomEvents = window.allEventsMap[roomId] || [];
         roomEvents.forEach(ev => {
+          const isLinked = ev.extendedProps?.is_linked === true;
           mergedEvents.push({
             ...ev,
             resourceId: roomId,
@@ -85,26 +84,28 @@ function initCalendar() {
             extendedProps: {
               ...(ev.extendedProps || {}),
               realCalendarId: roomId
-            }
+            },
+            // Hide drag handles if linked => not editable
+            editable: !isLinked,
+            startEditable: !isLinked,
+            durationEditable: !isLinked
           });
         });
       }
       successCallback(mergedEvents);
     },
 
+    // Prevent new event creation in the past
     selectAllow(selectInfo) {
-      // disallow past
       return selectInfo.start >= new Date();
     },
 
-    // Called when user finishes drag-select
+    // Called when user finishes drag-select to create a new event
     select(info) {
-      // If resource-based => we have info.resource.id
       let chosenRoomId;
       if (info.resource) {
         chosenRoomId = info.resource.id;
       } else {
-        // Non-resource => fallback
         chosenRoomId = getFirstCheckedRoomId();
       }
 
@@ -130,8 +131,8 @@ function initCalendar() {
       });
     },
 
+    // Simpler "click to create"
     dateClick(info) {
-      // simpler "click to create"
       const start = info.date;
       const end   = new Date(start.getTime() + 30 * 60 * 1000);
       let chosenRoomId = getFirstCheckedRoomId();
@@ -164,18 +165,34 @@ function initCalendar() {
       openViewEventModal(info.event, calId);
     },
 
+    // User dragged an existing event
     eventDrop(info) {
-      // user dragged an existing event
       const event = info.event;
-      if (info.newResource) {        
-      }
       const newStart = event.start;
       const newEnd   = event.end || new Date(newStart.getTime() + 30 * 60 * 1000);
+
+      // 1) Linked check
+      if (event.extendedProps?.is_linked) {
+        window.showToast('Error', 'Cannot move or resize a linked event. Please edit the original event.');
+        info.revert();
+        return;
+      }
+
+      // 2) Check if new start is still in the past
+      if (newStart < new Date()) {
+        window.showToast('Error', 'Cannot move event to a past time.');
+        info.revert();
+        return;
+      }
+
+      // 3) Overlap check
       if (doesOverlap(event, newStart, newEnd)) {
         window.showToast('Error', 'Overlap. Reverting.');
         info.revert();
         return;
       }
+
+      // 4) Proceed with normal update
       const roomId = event.extendedProps?.realCalendarId;
       if (!roomId) {
         info.revert();
@@ -206,20 +223,39 @@ function initCalendar() {
       }, 0);
     },
 
+    // User resized an existing event
     eventResize(info) {
-      // resizing
       const event = info.event;
       const newStart = event.start;
       const newEnd   = event.end;
+
       if (!newEnd) {
         info.revert();
         return;
       }
+
+      // 1) Linked check
+      if (event.extendedProps?.is_linked) {
+        window.showToast('Error', 'Cannot move or resize a linked event. Please edit the original event.');
+        info.revert();
+        return;
+      }
+
+      // 2) Check if new start is still in the past
+      if (newStart < new Date()) {
+        window.showToast('Error', 'Cannot resize event so that it starts in the past.');
+        info.revert();
+        return;
+      }
+
+      // 3) Overlap check
       if (doesOverlap(event, newStart, newEnd)) {
         window.showToast('Error', 'Overlap. Reverting.');
         info.revert();
         return;
       }
+
+      // 4) Proceed with normal update
       const roomId = event.extendedProps?.realCalendarId;
       if (!roomId) {
         info.revert();
@@ -258,26 +294,19 @@ function initCalendar() {
   // Render the calendar
   window.multiCalendar.render();
 
-  /* ------------------------------------------------------------------
-     REAL-TIME HIGHLIGHT HACK
-     For resource view, each column has data-resource-id => we can color
-     the highlight to match that resource column's color.
-  ------------------------------------------------------------------ */
+  // ---------------------------------------------------------
+  // REAL-TIME HIGHLIGHT HACK
+  // ---------------------------------------------------------
   function colorHighlightEls() {
     const highlightEls = document.querySelectorAll('.fc-highlight');
     highlightEls.forEach(highlightEl => {
-      // Resource columns typically have .fc-timegrid-col[data-resource-id="X"]
-      // The highlight is nested inside that col. We find it:
       const resourceCol = highlightEl.closest('[data-resource-id]');
-
       if (resourceCol) {
-        // If found => color by resource ID
         const resourceId = resourceCol.getAttribute('data-resource-id');
         const color = window.roomColors[resourceId] || '#666';
         highlightEl.style.backgroundColor = color;
         highlightEl.style.opacity = '0.3';
       } else {
-        // If not found => fallback to the "first checked room" color (non-resource)
         const fallbackColor = getFirstCheckedRoomColor();
         highlightEl.style.backgroundColor = fallbackColor;
         highlightEl.style.opacity = '0.3';
@@ -298,5 +327,4 @@ function initCalendar() {
   }
 }
 
-/* Expose it if needed */
 window.initCalendar = initCalendar;
