@@ -192,21 +192,35 @@ function openViewEventModal(event, calendarId) {
   // Delete => confirm => call /api
   viewEventDeleteBtn.onclick = async () => {
     if (!canEditOrDelete) return;
+  
     const confirmDelete = confirm('Are you sure you want to delete this event?');
     if (!confirmDelete) return;
-
+  
+    // Hide modal & show spinner, like create/edit
+    const modalEl = document.getElementById('viewEventModal');
+    const bsInstance = bootstrap.Modal.getInstance(modalEl);
+    if (bsInstance) bsInstance.hide();
+  
+    window.showSpinner();
+    window.showToast("Deleting Event", "Please wait...");
+  
     try {
       await deleteEvent({ calendarId, id: event.id });
-      // remove from local memory
-      window.allEventsMap[calendarId] = window.allEventsMap[calendarId].filter(ev => ev.id !== event.id);
-      // refresh the main calendar
+  
+      // Remove from local memory
+      window.allEventsMap[calendarId] = window.allEventsMap[calendarId].filter(e => e.id !== event.id);
+  
+      // Refresh the main calendar
       window.multiCalendar.refetchEvents();
-
-      const bsInstance = bootstrap.Modal.getInstance(modalEl);
-      if (bsInstance) bsInstance.hide();
+  
+      // Optionally do a resyncSingleRoom(calendarId) if that’s your pattern
+      // await resyncSingleRoom(calendarId);
+  
       window.showToast("Deleted", "Event was successfully deleted.");
     } catch (err) {
       window.showError(`Failed to delete event: ${err.message}`);
+    } finally {
+      window.hideSpinner();
     }
   };
 
