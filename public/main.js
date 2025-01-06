@@ -610,4 +610,48 @@ document.addEventListener('DOMContentLoaded', async () => {
       hideSpinner();
     }
   });
+
+  /* ------------------------------------------------------------------
+     14) "Find a time" tab => free/busy logic
+     We exclude the room’s own ID/email from the free/busy request,
+     and only show the attendees' busy times.
+  ------------------------------------------------------------------ */
+  blankTabBtn?.addEventListener('shown.bs.tab', async () => {
+    // 1) Initialize the freeBusyCalendar if not done yet
+    if (!window.freeBusyCalendarInited) {
+      window.initFreeBusyCalendar(); // from freebusy.js
+      window.freeBusyCalendarInited = true;
+    }
+
+    // 2) Get user’s selected start/end from the form
+    const startLocal = eventStartField.value;
+    const endLocal   = eventEndField.value;
+    if (!startLocal || !endLocal) {
+      // If the user hasn't chosen times yet, do nothing
+      return;
+    }
+
+    // Convert local to ISO
+    const startISO = new Date(startLocal).toISOString();
+    const endISO   = new Date(endLocal).toISOString();
+
+    // 3) Gather attendee emails (exclude the room’s calendarId).
+    const calendarId = calendarIdField.value;
+    const allEmails  = window.inviteChips.map(c => c.email);
+    const filtered   = allEmails.filter(em => em !== calendarId);
+
+    // 4) Call /api/freebusy to get their busy times
+    try {
+      showSpinner();
+      const freebusyData = await window.loadFreeBusyData(filtered, startISO, endISO);
+      // 5) Populate the mini-calendar with those busy blocks
+      if (window.freeBusyCalendar) {
+        window.populateFreeBusyCalendar(window.freeBusyCalendar, freebusyData);
+      }
+    } catch (err) {
+      showError(`Failed to load free/busy: ${err.message}`);
+    } finally {
+      hideSpinner();
+    }
+  });
 });
