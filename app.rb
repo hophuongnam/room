@@ -23,8 +23,6 @@ USER_OAUTH_SCOPE = ['openid','email','profile']
 # ---------------------------
 # NEW: Global token usable flag
 # ---------------------------
-# If this is ever set to false, it means the Organizer's
-# Google credentials are no longer valid/usable.
 $token_usable = true
 
 def user_db
@@ -513,6 +511,9 @@ def create_linked_events_if_needed(original_cal_id, original_event_id, start_tim
 end
 
 def create_linked_event(original_cal_id, original_event_id, linked_cal_id, start_time, end_time, title, attendees, creator_email, service, description)
+  # ------------------------------------------------------
+  # CHANGED: We'll add " - [linked]" to the summary:
+  # ------------------------------------------------------
   linked_name = $rooms_data[linked_cal_id][:calendar_info][:summary] rescue 'Linked Room'
 
   link_props = Google::Apis::CalendarV3::Event::ExtendedProperties.new(
@@ -524,7 +525,7 @@ def create_linked_event(original_cal_id, original_event_id, linked_cal_id, start
     }
   )
   event = Google::Apis::CalendarV3::Event.new(
-    summary:     title,
+    summary:     "#{title} - [linked]",
     location:    linked_name,
     description: description,
     start:       { date_time: start_time.iso8601, time_zone: 'UTC' },
@@ -657,7 +658,8 @@ def sync_linked_events(original_cal_id, original_event_id, new_title, new_attend
       next unless priv['original_calendar_id'] == original_cal_id
       next unless priv['original_event_id']   == original_event_id
 
-      ev.summary     = new_title
+      # Keep the " - [linked]" suffix if it already has it
+      ev.summary     = new_title.include?(" - [linked]") ? new_title : "#{new_title} - [linked]"
       ev.attendees   = new_attendees.map { |em| { email: em } }
       ev.location    = $rooms_data[cal_id][:calendar_info][:summary] rescue new_location
       ev.description = description

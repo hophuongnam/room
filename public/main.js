@@ -147,7 +147,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   window.currentUserEmail = currentUserEmail;
 
   /* ------------------------------------------------------------------
-     6) Fetch user list 
+     6) Fetch user list
   ------------------------------------------------------------------ */
   let prefetchedUsers = [];
   let lastKnownUserVersion = 1;
@@ -176,7 +176,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   // Parse out "order:N" from description => _sortOrder, then sort
   rooms.forEach((room) => {
     const match = room.description?.match(/order:(\d+)/);
-    // default to 9999 if not found
     room._sortOrder = match ? parseInt(match[1], 10) : 9999;
   });
   rooms.sort((a, b) => a._sortOrder - b._sortOrder);
@@ -193,7 +192,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const locationTabBtn   = document.getElementById('location-tab');
   const blankTabBtn      = document.getElementById('blank-tab');
 
-  // Store original dialog classes (e.g. "modal-dialog modal-xl")
   const originalDialogClasses = eventModalDialog ? eventModalDialog.className : '';
 
   if (locationTabBtn && blankTabBtn && eventModalDialog) {
@@ -211,7 +209,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   /* ------------------------------------------------------------------
      8) Pre-Fetch All Room Events => store in memory
   ------------------------------------------------------------------ */
-  const allEventsMap = {}; 
+  const allEventsMap = {};
   async function prefetchAllRooms() {
     showSpinner();
     try {
@@ -310,7 +308,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     localStorage.setItem('selectedRoomIds', JSON.stringify(selectedIds));
 
-    // Use batchRendering to avoid flicker:
     if (window.multiCalendar) {
       window.multiCalendar.batchRendering(() => {
         window.multiCalendar.refetchResources();
@@ -335,7 +332,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // Enforce at least one default selection
   function enforceDefaultSelection() {
     const checkboxes = roomsCheckboxBar.querySelectorAll('input[type="checkbox"]');
     const anyChecked = Array.from(checkboxes).some(ch => ch.checked);
@@ -415,7 +411,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     if (!val) return;
 
-    const matches = prefetchedUsers.filter(u => 
+    const matches = prefetchedUsers.filter(u =>
       u.email.toLowerCase().includes(val) ||
       (u.name && u.name.toLowerCase().includes(val))
     ).slice(0, 5);
@@ -492,7 +488,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const currentVer = lastKnownVersions[roomId] || 0;
         if (version > currentVer) {
           lastKnownVersions[roomId] = version;
-          resyncSingleRoom(roomId); 
+          resyncSingleRoom(roomId);
         }
       });
     } catch (err) {
@@ -539,38 +535,55 @@ document.addEventListener('DOMContentLoaded', async () => {
   enforceDefaultSelection();
 
   /* ------------------------------------------------------------------
-     13) Handle form submission to prevent page reload
+     13) Handle form submission
+     - Hide modal immediately, show spinner + toast: "Event is being created..."
   ------------------------------------------------------------------ */
+  function localInputToUTCString(inputValue) {
+    if (!inputValue) return null;
+    const [datePart, timePart] = inputValue.split('T'); 
+    const [yyyy, mm, dd] = datePart.split('-').map(Number);
+    const [hh, min]      = timePart.split(':').map(Number);
+    const localDate = new Date(yyyy, mm - 1, dd, hh, min);
+    return localDate.toISOString();
+  }
+
   eventForm.addEventListener('submit', async (e) => {
-    e.preventDefault(); // Prevent the browser from reloading
+    e.preventDefault(); 
+
+    // Hide modal right away:
+    window.eventModal.hide();
+
+    // Show spinner + "creating..." toast:
+    showSpinner();
+    showToast('Creating Event', 'Please wait...');
 
     const calendarId    = calendarIdField.value;
     const eventId       = eventIdField.value;
     const title         = eventTitleField.value.trim();
-    const start         = eventStartField.value;  // "YYYY-MM-DDTHH:mm"
-    const end           = eventEndField.value;    // "YYYY-MM-DDTHH:mm"
+
+    const startUTC = localInputToUTCString(eventStartField.value);
+    const endUTC   = localInputToUTCString(eventEndField.value);
+
     const descriptionEl = document.getElementById('eventDescription');
     const description   = descriptionEl ? descriptionEl.value.trim() : "";
 
-    // Gather participants from chips
     const participants = window.inviteChips.map(c => c.email);
 
-    // Basic validation (e.g. required fields)
-    if (!calendarId || !title || !start || !end) {
+    if (!calendarId || !title || !startUTC || !endUTC) {
       showError('Please fill out required fields (room, title, start, end).');
+      hideSpinner();
       return;
     }
 
     try {
-      showSpinner();
       if (eventId) {
         // Update existing event
         await window.calendarHelpers.updateEvent({
           calendarId,
           eventId,
           title,
-          start,
-          end,
+          start: startUTC,
+          end: endUTC,
           participants,
           description
         });
@@ -580,18 +593,17 @@ document.addEventListener('DOMContentLoaded', async () => {
         await window.calendarHelpers.createEvent({
           calendarId,
           title,
-          start,
-          end,
+          start: startUTC,
+          end: endUTC,
           participants,
           description
         });
         showToast('Created', 'Event created successfully.');
       }
+
       // Re-sync that room’s data
       await resyncSingleRoom(calendarId);
 
-      // Close the modal
-      window.eventModal.hide();
     } catch (err) {
       showError(`Error saving event: ${err.message}`);
     } finally {

@@ -28,7 +28,6 @@ function getFirstCheckedRoomColor() {
 
 /**
  * Basic overlap check within the same room
- * movingEvent => an event-like object with .extendedProps.realCalendarId
  */
 function doesOverlap(movingEvent, newStart, newEnd) {
   const allEvents = window.multiCalendar.getEvents(); // from the main calendar
@@ -44,7 +43,6 @@ function doesOverlap(movingEvent, newStart, newEnd) {
 
     const evStart = ev.start ? ev.start.getTime() : null;
     const evEnd   = ev.end   ? ev.end.getTime()   : evStart;
-    // Overlap check
     if (evStart < newEndMs && evEnd > newStartMs) {
       return true;
     }
@@ -160,8 +158,8 @@ function openViewEventModal(event, calendarId) {
   const creatorEmail = event.extendedProps?.organizer;
   let canEditOrDelete = true;
 
+  // CHANGED: If it's linked => forcibly disable edit/delete
   if (isLinked) {
-    // If it's a "linked" event, disallow direct editing
     canEditOrDelete = false;
   } else {
     // If user not in attendees and not the creator => no edit
@@ -170,13 +168,14 @@ function openViewEventModal(event, calendarId) {
     }
   }
 
+  // Hide or show edit/delete
   viewEventEditBtn.style.display   = canEditOrDelete ? 'inline-block' : 'none';
   viewEventDeleteBtn.style.display = canEditOrDelete ? 'inline-block' : 'none';
 
   // Edit => open create/edit
   viewEventEditBtn.onclick = () => {
     if (!canEditOrDelete) return;
-    openEventModal({
+    window.calendarHelpers.openEventModal({
       calendarId,
       eventId: event.id,
       title: event.title,
@@ -319,7 +318,7 @@ function openEventModal({ calendarId, eventId, title, start, end, attendees, des
     eventDescriptionField.value = description || '';
   }
 
-  // Force "Event Details" tab in the modal
+  // Force "Event Details" tab
   const locationTabBtn = document.getElementById('location-tab');
   const blankTabBtn    = document.getElementById('blank-tab');
   const locationPane   = document.getElementById('location');
@@ -334,7 +333,7 @@ function openEventModal({ calendarId, eventId, title, start, end, attendees, des
 }
 
 /* ------------------------------------------------------------------
-   Expose them as a global object or individually
+   Expose them as a global object
 ------------------------------------------------------------------ */
 window.calendarHelpers = {
   getFirstCheckedRoomId,
