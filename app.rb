@@ -20,9 +20,9 @@ PORT             = ENV['PORT'] ? ENV['PORT'].to_i : 3000
 SESSION_SECRET   = ENV['SESSION_SECRET'] || 'fallback_super_secure_secret_key'
 USER_OAUTH_SCOPE = ['openid','email','profile']
 
-# ---------------------------
+# -------------------------------------------------
 # NEW: Global token usable flag
-# ---------------------------
+# -------------------------------------------------
 $token_usable = true
 
 def user_db
@@ -42,6 +42,12 @@ $user_list_version = 1
 def bump_user_list_version
   $user_list_version += 1
 end
+
+# -------------------------------------------------
+# NOTE: We ensure $sync_tokens is defined here
+#       but you could also do it only in services.rb.
+# -------------------------------------------------
+$sync_tokens ||= {}
 
 # -------------------------------------------------
 # Auth Guard

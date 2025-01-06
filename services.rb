@@ -20,6 +20,13 @@ $calendar_watch_map  = {}
 $room_update_tracker = Hash.new(0)
 $rooms_data          = {}
 
+# -------------------------------------------------------
+# NEW: Store sync tokens for partial sync
+# Key: calendar_id => sync_token
+# If we do not have a token or token is invalid => full fetch
+# -------------------------------------------------------
+$sync_tokens ||= {}
+
 def initialize_database
   db = SQLite3::Database.new(DB_PATH)
   db.execute <<-SQL
@@ -111,18 +118,56 @@ def fetch_events_for_calendar(calendar_id, service = nil)
     s
   end
 
-  time_min_utc = (Time.now.utc - 7 * 86400).iso8601
+  # Attempt partial sync with syncToken if we have one
+  token = $sync_tokens[calendar_id]
 
-  result = service.list_events(
-    calendar_id,
-    single_events: true,
-    order_by: 'startTime',
-    time_min: time_min_utc
-  )
+  result = nil
 
-  this_room_data = $rooms_data[calendar_id]
-  this_role      = this_room_data ? this_room_data[:role] : 'normal'
+  begin
+    if token
+      # PARTIAL SYNC
+      puts "[fetch_events_for_calendar] Using sync token for #{calendar_id}"
+      result = service.list_events(
+        calendar_id,
+        single_events: true,
+        order_by:      'startTime',
+        sync_token:    token
+      )
+    else
+      # FULL SYNC
+      puts "[fetch_events_for_calendar] No sync token for #{calendar_id}, doing full fetch"
+      time_min_utc = (Time.now.utc - 7 * 86400).iso8601
+      result = service.list_events(
+        calendar_id,
+        single_events: true,
+        order_by:      'startTime',
+        time_min:      time_min_utc
+      )
+    end
+  rescue Google::Apis::ClientError => e
+    # If token is invalid or too old => 410 Gone => must do full sync
+    if e.status_code == 410
+      puts "[fetch_events_for_calendar] Sync token invalid for #{calendar_id}; performing full fetch..."
+      $sync_tokens.delete(calendar_id)  # remove old token
+      time_min_utc = (Time.now.utc - 7 * 86400).iso8601
+      result = service.list_events(
+        calendar_id,
+        single_events: true,
+        order_by:      'startTime',
+        time_min:      time_min_utc
+      )
+    else
+      raise
+    end
+  end
 
+  # If we got a new sync token, store it
+  if result && result.next_sync_token
+    puts "[fetch_events_for_calendar] Storing new sync token for #{calendar_id}"
+    $sync_tokens[calendar_id] = result.next_sync_token
+  end
+
+  # Now parse the actual events (including newly changed or returned ones)
   result.items.map do |event|
     priv      = event.extended_properties&.private
     is_linked = (priv && priv['is_linked'] == 'true')
@@ -144,7 +189,8 @@ def fetch_events_for_calendar(calendar_id, service = nil)
         original_event_id:    orig_ev_id,
         description: event.description || ""
       },
-      borderColor: border_color
+      borderColor: border_color,
+      # Could also track "status: event.status" if you want to handle cancellations.
     }
   end
 end
