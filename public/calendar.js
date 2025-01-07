@@ -41,8 +41,13 @@ function initCalendar() {
     editable: true,
     eventResizableFromStart: true,
 
-    views: {
-      // If you want custom view settings, place them here
+    // Event click handler
+    eventClick(info) {
+      const event = info.event;
+      const calId = event.extendedProps?.realCalendarId;
+      if (!calId) return;
+
+      openViewEventModal(event, calId);
     },
 
     // Load resources from your rooms
@@ -84,6 +89,7 @@ function initCalendar() {
               ...(ev.extendedProps || {}),
               realCalendarId: roomId
             },
+            // Hide drag handles if linked => not editable
             editable: !isLinked,
             startEditable: !isLinked,
             durationEditable: !isLinked
@@ -280,7 +286,9 @@ function initCalendar() {
   // Render the calendar
   window.multiCalendar.render();
 
-  // "Real-time highlight hack"
+  // ---------------------------------------------------------
+  // REAL-TIME HIGHLIGHT HACK
+  // ---------------------------------------------------------
   function colorHighlightEls() {
     const highlightEls = document.querySelectorAll('.fc-highlight');
     highlightEls.forEach(highlightEl => {
@@ -300,11 +308,13 @@ function initCalendar() {
 
   const fcContainer = document.querySelector('.fc-view-harness');
   if (fcContainer) {
+    // Watch for new highlight elements
     const observer = new MutationObserver(() => {
       colorHighlightEls();
     });
     observer.observe(fcContainer, { childList: true, subtree: true });
 
+    // Also re-color on mousemove
     fcContainer.addEventListener('mousemove', colorHighlightEls);
   }
 
