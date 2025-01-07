@@ -201,7 +201,6 @@ document.addEventListener('DOMContentLoaded', async () => {
   const eventModalDialog = document.getElementById('eventModalDialog');
   const locationTabBtn   = document.getElementById('location-tab');
   const blankTabBtn      = document.getElementById('blank-tab');
-
   const originalDialogClasses = eventModalDialog ? eventModalDialog.className : '';
 
   if (locationTabBtn && blankTabBtn && eventModalDialog) {
@@ -546,7 +545,8 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   /* ------------------------------------------------------------------
      13) Handle form submission
-     - Hide modal immediately, show spinner + toast: "Event is being created..."
+     - Immediately reflect changes in local memory
+     - Rely on push notifications for final sync
   ------------------------------------------------------------------ */
   function localInputToUTCString(inputValue) {
     if (!inputValue) return null;
@@ -563,7 +563,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Hide modal right away:
     window.eventModal.hide();
 
-    // Show spinner + appropriate toast:
+    // Show spinner + toast
     showSpinner();
     if (eventIdField.value) {
       showToast('Updating Event', 'Please wait...');
@@ -574,14 +574,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     const calendarId    = calendarIdField.value;
     const eventId       = eventIdField.value;
     const title         = eventTitleField.value.trim();
-
-    const startUTC = localInputToUTCString(eventStartField.value);
-    const endUTC   = localInputToUTCString(eventEndField.value);
+    const startUTC      = localInputToUTCString(eventStartField.value);
+    const endUTC        = localInputToUTCString(eventEndField.value);
 
     const descriptionEl = document.getElementById('eventDescription');
     const description   = descriptionEl ? descriptionEl.value.trim() : "";
-
-    const participants = window.inviteChips.map(c => c.email);
+    const participants  = window.inviteChips.map(c => c.email);
 
     if (!calendarId || !title || !startUTC || !endUTC) {
       showError('Please fill out required fields (room, title, start, end).');
@@ -591,7 +589,24 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     try {
       if (eventId) {
-        // Update existing event
+        // 1) Immediately update local event
+        const localArray = window.allEventsMap[calendarId] || [];
+        const localIndex = localArray.findIndex(e => e.id === eventId);
+        let oldData = null;
+        if (localIndex !== -1) {
+          oldData = JSON.parse(JSON.stringify(localArray[localIndex]));
+          localArray[localIndex].title = title;
+          localArray[localIndex].start = startUTC;
+          localArray[localIndex].end   = endUTC;
+          localArray[localIndex].attendees = participants;
+          if (!localArray[localIndex].extendedProps) {
+            localArray[localIndex].extendedProps = {};
+          }
+          localArray[localIndex].extendedProps.description = description;
+        }
+        window.multiCalendar.refetchEvents();
+
+        // 2) Fire remote update
         await window.calendarHelpers.updateEvent({
           calendarId,
           eventId,
@@ -603,8 +618,29 @@ document.addEventListener('DOMContentLoaded', async () => {
         });
         showToast('Updated', 'Event updated successfully.');
       } else {
-        // Create new event
-        await window.calendarHelpers.createEvent({
+        // CREATE
+        // 1) Immediately create in local store with a temp ID
+        const tempId = 'temp-' + Math.random().toString(36).substr(2, 9);
+        const newEventObj = {
+          id: tempId,
+          title,
+          start: startUTC,
+          end: endUTC,
+          attendees: participants,
+          extendedProps: {
+            description,
+            organizer: window.currentUserEmail,
+            is_linked: false
+          }
+        };
+        if (!window.allEventsMap[calendarId]) {
+          window.allEventsMap[calendarId] = [];
+        }
+        window.allEventsMap[calendarId].push(newEventObj);
+        window.multiCalendar.refetchEvents();
+
+        // 2) Create on server
+        const createdData = await window.calendarHelpers.createEvent({
           calendarId,
           title,
           start: startUTC,
@@ -613,11 +649,14 @@ document.addEventListener('DOMContentLoaded', async () => {
           description
         });
         showToast('Created', 'Event created successfully.');
+
+        // 3) Replace local temp ID with real ID
+        const localArr = window.allEventsMap[calendarId];
+        const tempIndex = localArr.findIndex(e => e.id === tempId);
+        if (tempIndex !== -1) {
+          localArr[tempIndex].id = createdData.event_id;
+        }
       }
-
-      // Re-sync that room’s data
-      await resyncSingleRoom(calendarId);
-
     } catch (err) {
       showError(`Error saving event: ${err.message}`);
     } finally {
@@ -627,8 +666,6 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   /* ------------------------------------------------------------------
      14) "Find a time" tab => free/busy logic
-     We exclude the room’s own ID/email from the free/busy request,
-     and only show the attendees' busy times.
   ------------------------------------------------------------------ */
   blankTabBtn?.addEventListener('shown.bs.tab', async () => {
     // 1) Initialize the freeBusyCalendar if not done yet
@@ -637,11 +674,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       window.freeBusyCalendarInited = true;
     }
 
-    // 2) Get user’s selected start/end from the form
+    // 2) Get user's selected start/end
     const startLocal = eventStartField.value;
     const endLocal   = eventEndField.value;
     if (!startLocal || !endLocal) {
-      // If the user hasn't chosen times yet, do nothing
       return;
     }
 
@@ -649,7 +685,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     const startISO = new Date(startLocal).toISOString();
     const endISO   = new Date(endLocal).toISOString();
 
-    // 3) Gather attendee emails (exclude the room’s calendarId).
+    // Gather attendee emails (exclude the room’s calendarId)
     const calendarId = calendarIdField.value;
     const allEmails  = window.inviteChips.map(c => c.email);
     const filtered   = allEmails.filter(em => em !== calendarId);
@@ -659,11 +695,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-    // 4) Call /api/freebusy to get their busy times
+    // 4) Call /api/freebusy
     try {
       showSpinner();
       const freebusyData = await window.loadFreeBusyData(filtered, startISO, endISO);
-      // 5) Populate the mini-calendar with those busy blocks
+      // 5) Populate mini-calendar
       if (window.freeBusyCalendar) {
         window.populateFreeBusyCalendar(window.freeBusyCalendar, freebusyData);
       }

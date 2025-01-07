@@ -158,7 +158,7 @@ function openViewEventModal(event, calendarId) {
   const creatorEmail = event.extendedProps?.organizer;
   let canEditOrDelete = true;
 
-  // CHANGED: If it's linked => forcibly disable edit/delete
+  // If it's linked => forcibly disable edit/delete
   if (isLinked) {
     canEditOrDelete = false;
   } else {
@@ -196,28 +196,26 @@ function openViewEventModal(event, calendarId) {
     const confirmDelete = confirm('Are you sure you want to delete this event?');
     if (!confirmDelete) return;
   
-    // Hide modal & show spinner, like create/edit
-    const modalEl = document.getElementById('viewEventModal');
+    // Hide modal & show spinner
     const bsInstance = bootstrap.Modal.getInstance(modalEl);
     if (bsInstance) bsInstance.hide();
   
     window.showSpinner();
     window.showToast("Deleting Event", "Please wait...");
+
+    // Immediately remove from local memory (with a copy for potential revert)
+    const localCopy = window.allEventsMap[calendarId] || [];
+    const oldEvents = [...localCopy];
+    window.allEventsMap[calendarId] = localCopy.filter(e => e.id !== event.id);
+    window.multiCalendar.refetchEvents();
   
     try {
       await deleteEvent({ calendarId, id: event.id });
-  
-      // Remove from local memory
-      window.allEventsMap[calendarId] = window.allEventsMap[calendarId].filter(e => e.id !== event.id);
-  
-      // Refresh the main calendar
-      window.multiCalendar.refetchEvents();
-  
-      // Optionally do a resyncSingleRoom(calendarId) if that’s your pattern
-      // await resyncSingleRoom(calendarId);
-  
       window.showToast("Deleted", "Event was successfully deleted.");
     } catch (err) {
+      // If delete fails, revert local memory
+      window.allEventsMap[calendarId] = oldEvents;
+      window.multiCalendar.refetchEvents();
       window.showError(`Failed to delete event: ${err.message}`);
     } finally {
       window.hideSpinner();
@@ -252,26 +250,22 @@ function openEventModal({ calendarId, eventId, title, start, end, attendees, des
   // Clear old <options> from the Room <select>
   eventRoomSelect.innerHTML = '';
 
-  // Which rooms are currently checked?
-  // Which rooms are currently checked?
+  // Determine defaultCalId
   const roomsCheckboxBar = document.getElementById('roomsCheckboxBar');
   const checkboxes = roomsCheckboxBar.querySelectorAll('input[type="checkbox"]');
   const checkedRoomIds = Array.from(checkboxes).filter(ch => ch.checked).map(ch => ch.value);
 
-  // If editing, use the event's existing calendarId. If creating new, fall back to the first checked room.
-  // If editing, use the event's existing calendarId.
-    // If creating new, first try the passed calendarId, else fall back to the first checked or first in all rooms.
   let defaultCalId;
   if (eventId) {
-    // We are editing an existing event => force the room to the existing calendar
+    // We are editing => use event's existing calendar
     defaultCalId = calendarId;
   } else {
-    // Creating a new event => first attempt the provided calendarId
+    // Creating => fallback to passed or first checked
     defaultCalId = calendarId
       || (checkedRoomIds.length > 0
-            ? checkedRoomIds[0]
-            : (window.rooms.length > 0 ? window.rooms[0].id : null)
-          );
+           ? checkedRoomIds[0]
+           : (window.rooms.length > 0 ? window.rooms[0].id : null)
+         );
   }
 
   // Populate the <select> with all known rooms
@@ -302,20 +296,17 @@ function openEventModal({ calendarId, eventId, title, start, end, attendees, des
   calendarIdField.value = defaultCalId || '';
   eventIdField.value    = eventId      || '';
   eventTitleField.value = title        || '';
-  eventIdField.value    = eventId      || '';
-  eventTitleField.value = title        || '';
 
   // If creating a new event => reset chips
   if (!eventId) {
     window.inviteChips = [];
     window.clearChipsUI();
-
     if (start) eventStartField.value = window.toLocalDateTimeInput(new Date(start));
     else       eventStartField.value = '';
     if (end)   eventEndField.value   = window.toLocalDateTimeInput(new Date(end));
     else       eventEndField.value   = '';
   } else {
-    // editing => if we have start/end, ensure the field is filled
+    // Editing => ensure start/end fields are filled
     if (!eventStartField.value && start) {
       eventStartField.value = window.toLocalDateTimeInput(new Date(start));
     }
