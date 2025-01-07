@@ -184,7 +184,7 @@ def parse_event(item)
   # into a Ruby hash. You can customize as needed:
   {
     id:        item.id,
-    summary:   item.summary,
+    title:     item.summary,
     start:     item.start&.date_time || item.start&.date,
     end:       item.end&.date_time   || item.end&.date,
     attendees: (item.attendees || []).map(&:email),

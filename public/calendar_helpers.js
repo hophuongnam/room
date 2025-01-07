@@ -253,15 +253,25 @@ function openEventModal({ calendarId, eventId, title, start, end, attendees, des
   eventRoomSelect.innerHTML = '';
 
   // Which rooms are currently checked?
+  // Which rooms are currently checked?
   const roomsCheckboxBar = document.getElementById('roomsCheckboxBar');
   const checkboxes = roomsCheckboxBar.querySelectorAll('input[type="checkbox"]');
   const checkedRoomIds = Array.from(checkboxes).filter(ch => ch.checked).map(ch => ch.value);
 
-  let defaultCalId = calendarId;
-  if (!defaultCalId) {
-    defaultCalId = (checkedRoomIds.length > 0)
-      ? checkedRoomIds[0]
-      : (window.rooms.length > 0 ? window.rooms[0].id : null);
+  // If editing, use the event's existing calendarId. If creating new, fall back to the first checked room.
+  // If editing, use the event's existing calendarId.
+    // If creating new, first try the passed calendarId, else fall back to the first checked or first in all rooms.
+  let defaultCalId;
+  if (eventId) {
+    // We are editing an existing event => force the room to the existing calendar
+    defaultCalId = calendarId;
+  } else {
+    // Creating a new event => first attempt the provided calendarId
+    defaultCalId = calendarId
+      || (checkedRoomIds.length > 0
+            ? checkedRoomIds[0]
+            : (window.rooms.length > 0 ? window.rooms[0].id : null)
+          );
   }
 
   // Populate the <select> with all known rooms
@@ -275,6 +285,9 @@ function openEventModal({ calendarId, eventId, title, start, end, attendees, des
     eventRoomSelect.appendChild(option);
   });
 
+  // Make the location box read-only
+  eventRoomSelect.disabled = true;
+
   function setSquareColor(calId) {
     const c = window.roomColors[calId] || '#666';
     roomColorSquare.style.backgroundColor = c;
@@ -287,6 +300,8 @@ function openEventModal({ calendarId, eventId, title, start, end, attendees, des
 
   // Hidden fields
   calendarIdField.value = defaultCalId || '';
+  eventIdField.value    = eventId      || '';
+  eventTitleField.value = title        || '';
   eventIdField.value    = eventId      || '';
   eventTitleField.value = title        || '';
 

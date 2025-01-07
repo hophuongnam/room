@@ -139,7 +139,19 @@ function initCalendar() {
     dateClick(info) {
       const start = info.date;
       const end   = new Date(start.getTime() + 30 * 60 * 1000);
-      let chosenRoomId = getFirstCheckedRoomId();
+
+      // If we're in a resource-based view (like resourceTimeGridDay/Week),
+      // require that the click happened on a resource column
+      if (info.view.type.startsWith('resourceTimeGrid') && !info.resource) {
+        window.showToast('Notice', 'Please click on a resource column to create an event.');
+        return;
+      }
+
+      // Some versions store ID in info.resource.id, others in info.resource._resource.id
+      let chosenRoomId = info.resource.id
+                         || info.resource?._resource?.id
+                         || getFirstCheckedRoomId();
+     
       if (!chosenRoomId) {
         window.showToast('Notice', 'No room selected.');
         return;

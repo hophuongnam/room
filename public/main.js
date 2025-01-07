@@ -553,9 +553,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Hide modal right away:
     window.eventModal.hide();
 
-    // Show spinner + "creating..." toast:
+    // Show spinner + appropriate toast:
     showSpinner();
-    showToast('Creating Event', 'Please wait...');
+    if (eventIdField.value) {
+      showToast('Updating Event', 'Please wait...');
+    } else {
+      showToast('Creating Event', 'Please wait...');
+    }
 
     const calendarId    = calendarIdField.value;
     const eventId       = eventIdField.value;
