@@ -122,6 +122,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       const meData = await meRes.json();
       currentUserEmail = meData.email;
       isLoggedIn = true;
+      window.meData = meData;
     } else if (meRes.status === 401) {
       // Not logged in
     } else {
@@ -135,6 +136,15 @@ document.addEventListener('DOMContentLoaded', async () => {
   if (isLoggedIn) {
     logoutBtn.style.display = 'inline-block';
     loginBtn.style.display  = 'none';
+
+    const userProfilePic = document.getElementById('userProfilePic');
+    if (window.meData?.picture) {
+      userProfilePic.src = window.meData.picture;
+    } else {
+      userProfilePic.src = 'images/placeholder-user.png';
+    }
+    userProfilePic.style.display = 'inline-block';
+
   } else {
     logoutBtn.style.display = 'none';
     loginBtn.style.display  = 'inline-block';
