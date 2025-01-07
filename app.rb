@@ -565,6 +565,7 @@ put '/api/update_event' do
   calendar_id    = request_data['calendarId']
   event_id       = request_data['eventId']
   title          = request_data['title']
+  # Ensure participants is at least an empty array if missing
   participants   = request_data['participants'] || []
   description    = request_data['description'] || ""
 
@@ -572,8 +573,10 @@ put '/api/update_event' do
   new_start_time_str = request_data['start']
   new_end_time_str   = request_data['end']
 
+  # Basic field checks
   halt 400, { error: 'Missing fields' }.to_json unless calendar_id && event_id && title
 
+  # Must be logged in
   user_email = session[:user_email]
   halt 401, { error: 'Unauthorized' }.to_json unless user_email
 
@@ -582,12 +585,8 @@ put '/api/update_event' do
 
   existing_event = service.get_event(calendar_id, event_id)
 
-  priv_props = if existing_event.extended_properties&.private
-                 existing_event.extended_properties.private
-               else
-                 {}
-               end
-
+  # Extended properties for checking if it's linked, or who the creator is
+  priv_props = existing_event.extended_properties&.private || {}
   is_linked     = (priv_props['is_linked'] == 'true')
   creator_email = priv_props['creator_email']
 
@@ -596,18 +595,18 @@ put '/api/update_event' do
     halt 403, { error: 'Cannot edit a linked event directly. Edit the original event.' }.to_json
   end
 
-  # Check if current user is in attendees or is the creator
+  # Check permissions: either user is in attendees or the creator
   all_attendees = (existing_event.attendees || []).map(&:email)
   unless all_attendees.include?(user_email) || (creator_email == user_email)
     halt 403, { error: 'You do not have permission to update this event' }.to_json
   end
 
-  # Update time if provided
+  # If new start/end provided, do overlap checks, etc.
   if new_start_time_str && new_end_time_str
     start_time_utc = Time.parse(new_start_time_str).utc
     end_time_utc   = Time.parse(new_end_time_str).utc
 
-    # Reject if the new start is still in the past
+    # Reject if start is in the past
     if start_time_utc < Time.now.utc
       halt 400, { error: 'Cannot set event start time in the past.' }.to_json
     end
@@ -617,28 +616,41 @@ put '/api/update_event' do
       halt 409, { error: 'Time slot overlaps an existing event' }.to_json
     end
 
-    # Update the existing event object
     existing_event.start.date_time = start_time_utc.iso8601
     existing_event.end.date_time   = end_time_utc.iso8601
   end
 
-  # Update other fields (title, description, attendees)
-  updated_attendees_emails = (participants + [creator_email]).uniq.reject(&:empty?)
+  # Combine participants + [creator_email], remove nil, strip whitespace, remove empty
+  updated_attendees_emails = (participants + [creator_email])
+                              .compact
+                              .map(&:strip)
+                              .reject(&:empty?)
+                              .uniq
+
+  # Update the event object with new data
   existing_event.summary     = title
   existing_event.description = description
   existing_event.attendees   = updated_attendees_emails.map { |em| { email: em } }
 
-  # Also update location if desired. For consistency, you might do:
+  # Optionally update location to match the room's summary
   new_location = $rooms_data[calendar_id][:calendar_info][:summary] rescue 'Updated Room'
   existing_event.location = new_location
 
-  # Perform the update
+  # Send update to Google
   result = service.update_event(calendar_id, event_id, existing_event)
 
-  # Sync linked events if you have that logic
-  sync_linked_events(calendar_id, event_id, result.summary, updated_attendees_emails, result.location, service, description)
+  # Sync linked events if you have that logic (defined elsewhere)
+  sync_linked_events(
+    calendar_id,
+    event_id,
+    result.summary,
+    updated_attendees_emails,
+    result.location,
+    service,
+    description
+  )
 
-  # Update your local memory cache
+  # Update local cache
   updated_events = fetch_events_for_calendar(calendar_id, service)
   if $rooms_data[calendar_id]
     $rooms_data[calendar_id][:events]       = updated_events
