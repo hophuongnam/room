@@ -623,8 +623,10 @@ put '/api/update_event' do
     updated_attendees_emails,
     result.location,
     service,
-    description
-  )
+    description,
+    (result.start.date_time || result.start.date),
+    (result.end.date_time   || result.end.date)
+)
 
   updated_events = fetch_events_for_calendar(calendar_id, service)
   if $rooms_data[calendar_id]
@@ -647,7 +649,7 @@ put '/api/update_event' do
   }.to_json
 end
 
-def sync_linked_events(original_cal_id, original_event_id, new_title, new_attendees, new_location, service, description)
+def sync_linked_events(original_cal_id, original_event_id, new_title, new_attendees, new_location, service, description, new_start, new_end)
   $rooms_data.keys.each do |cal_id|
     next if cal_id == original_cal_id
 
@@ -668,6 +670,18 @@ def sync_linked_events(original_cal_id, original_event_id, new_title, new_attend
       ev.attendees   = new_attendees.map { |em| { email: em } }
       ev.location    = $rooms_data[cal_id][:calendar_info][:summary] rescue new_location
       ev.description = description
+
+      # Update start/end times for sub/super linked events:
+      if new_start.is_a?(String) && new_start =~ /^\\d{4}-\\d{2}-\\d{2}T/
+        ev.start.date_time = new_start
+        ev.end.date_time   = new_end
+      elsif new_start.is_a?(DateTime) || new_start.is_a?(Time)
+        ev.start.date_time = new_start.iso8601
+        ev.end.date_time   = new_end.iso8601
+      else
+        ev.start.date = new_start.to_s
+        ev.end.date   = new_end.to_s
+      end
 
       service.update_event(cal_id, ev.id, ev)
 
@@ -877,8 +891,24 @@ post '/api/move_event' do
   inserted.extended_properties = Google::Apis::CalendarV3::Event::ExtendedProperties.new(private: new_priv)
   service.update_event(new_cal_id, new_event_id, inserted)
 
-  # 3) Delete from old calendar
+  # 3) First delete any linked sub-events in the old calendar (same approach as /api/delete_event).
+  delete_linked_events(old_cal_id, event_id, service)
+
+  # Now delete the original from the old calendar
   service.delete_event(old_cal_id, event_id)
+
+  # 3.5) Since we just created a new 'original' event in new_cal_id, we may also want to create its linked sub-events (if it's a super or sub).
+  create_linked_events_if_needed(
+    new_cal_id,
+    new_event_id,
+    start_time_utc,
+    end_time_utc,
+    title,
+    attendees,
+    old_creator,
+    service,
+    description
+  )
 
   # 4) Update local memory
   updated_new = fetch_events_for_calendar(new_cal_id, service)
@@ -894,6 +924,7 @@ post '/api/move_event' do
     $rooms_data[old_cal_id][:last_fetched] = Time.now
     $room_update_tracker[old_cal_id] += 1
   end
+
 
   content_type :json
   { status: 'success', newEventId: new_event_id }.to_json

@@ -644,6 +644,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     const allEmails  = window.inviteChips.map(c => c.email);
     const filtered   = allEmails.filter(em => em !== calendarId);
 
+    if (filtered.length === 0) {
+      showError("No attendees chosen. Please add at least one attendee to see free/busy times.");
+      return;
+    }
+
     // 4) Call /api/freebusy to get their busy times
     try {
       showSpinner();
