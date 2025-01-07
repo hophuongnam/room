@@ -112,21 +112,21 @@ def parse_room_role_and_links(cal)
 end
 
 def fetch_events_for_calendar(calendar_id, service = nil)
+  # Re-use or create a new CalendarService.
+  # If you've already got a service instance, pass it in to avoid reloading credentials each time.
   service ||= begin
     s = Google::Apis::CalendarV3::CalendarService.new
     s.authorization = load_organizer_credentials
     s
   end
 
-  # Attempt partial sync with syncToken if we have one
+  # Attempt partial sync if we have a token
   token = $sync_tokens[calendar_id]
-
   result = nil
 
   begin
     if token
       # PARTIAL SYNC
-      puts "[fetch_events_for_calendar] Using sync token for #{calendar_id}"
       result = service.list_events(
         calendar_id,
         single_events: true,
@@ -134,8 +134,7 @@ def fetch_events_for_calendar(calendar_id, service = nil)
         sync_token:    token
       )
     else
-      # FULL SYNC
-      puts "[fetch_events_for_calendar] No sync token for #{calendar_id}, doing full fetch"
+      # FULL FETCH
       time_min_utc = (Time.now.utc - 7 * 86400).iso8601
       result = service.list_events(
         calendar_id,
@@ -144,11 +143,13 @@ def fetch_events_for_calendar(calendar_id, service = nil)
         time_min:      time_min_utc
       )
     end
+
   rescue Google::Apis::ClientError => e
-    # If token is invalid or too old => 410 Gone => must do full sync
+    # If the sync token is invalid/expired, Google returns 410
     if e.status_code == 410
-      puts "[fetch_events_for_calendar] Sync token invalid for #{calendar_id}; performing full fetch..."
-      $sync_tokens.delete(calendar_id)  # remove old token
+      $sync_tokens.delete(calendar_id)
+
+      # Retry with a full fetch
       time_min_utc = (Time.now.utc - 7 * 86400).iso8601
       result = service.list_events(
         calendar_id,
@@ -161,38 +162,42 @@ def fetch_events_for_calendar(calendar_id, service = nil)
     end
   end
 
-  # If we got a new sync token, store it
-  if result && result.next_sync_token
-    puts "[fetch_events_for_calendar] Storing new sync token for #{calendar_id}"
-    $sync_tokens[calendar_id] = result.next_sync_token
+  # If the result exists, log how many items were returned
+  if result
+
+    # Check if we got a new sync token
+    if result.next_sync_token
+      $sync_tokens[calendar_id] = result.next_sync_token
+    else
+    end
+  else
   end
 
-  # Now parse the actual events (including newly changed or returned ones)
-  result.items.map do |event|
-    priv      = event.extended_properties&.private
-    is_linked = (priv && priv['is_linked'] == 'true')
-    orig_cal  = priv && priv['original_calendar_id']
-    orig_ev_id= priv && priv['original_event_id']
+  # Convert the Event objects into your local format (hashes, etc.)
+  # Adjust the map logic to suit your needs or keep it inline:
+  events = result ? result.items.map { |item| parse_event(item) } : []
+  return events
+end
 
-    border_color = determine_linked_event_color(calendar_id, orig_cal)
-
-    {
-      id: event.id,
-      title: event.summary,
-      start: event.start.date_time || event.start.date,
-      end:   event.end.date_time   || event.end.date,
-      attendees: (event.attendees&.map(&:email) || []),
-      extendedProps: {
-        organizer: priv&.[]('creator_email') || event.organizer&.email,
-        is_linked: is_linked,
-        original_calendar_id: orig_cal,
-        original_event_id:    orig_ev_id,
-        description: event.description || ""
-      },
-      borderColor: border_color,
-      # Could also track "status: event.status" if you want to handle cancellations.
+def parse_event(item)
+  # Helper method to parse the Google::Apis::CalendarV3::Event object
+  # into a Ruby hash. You can customize as needed:
+  {
+    id:        item.id,
+    summary:   item.summary,
+    start:     item.start&.date_time || item.start&.date,
+    end:       item.end&.date_time   || item.end&.date,
+    attendees: (item.attendees || []).map(&:email),
+    extendedProps: {
+      organizer:  item.extended_properties&.private&.[]('creator_email') ||
+                  item.organizer&.email,
+      is_linked:  (item.extended_properties&.private&.[]('is_linked') == 'true'),
+      original_calendar_id: item.extended_properties&.private&.[]('original_calendar_id'),
+      original_event_id:    item.extended_properties&.private&.[]('original_event_id'),
+      description:          item.description || ""
     }
-  end
+    # Additional fields as needed...
+  }
 end
 
 def determine_linked_event_color(current_calendar_id, original_calendar_id)
