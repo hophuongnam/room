@@ -43,10 +43,7 @@ def bump_user_list_version
   $user_list_version += 1
 end
 
-# -------------------------------------------------
-# NOTE: We ensure $sync_tokens is defined here
-#       but you could also do it only in services.rb.
-# -------------------------------------------------
+# Ensure $sync_tokens is defined
 $sync_tokens ||= {}
 
 # -------------------------------------------------
@@ -69,7 +66,8 @@ before do
     '/api/all_users',
     '/api/user_updates',
     '/api/user_details',
-    '/api/freebusy'  # also protect freebusy
+    '/api/freebusy',
+    '/api/move_event'  # Protect this as well
   ]
   if protected_paths.include?(request.path_info)
     unless session[:user_email]
@@ -379,7 +377,7 @@ post '/api/create_event' do
   start_time_utc = Time.parse(start_time_str).utc
   end_time_utc   = Time.parse(end_time_str).utc
 
-  # Overlap check for original event only
+  # Overlap check
   if events_overlap?(calendar_id, start_time_utc, end_time_utc)
     halt 409, { error: 'Time slot overlaps an existing event' }.to_json
   end
@@ -397,7 +395,7 @@ post '/api/create_event' do
       'creator_email'        => creator_email,
       'is_linked'            => 'false',
       'original_calendar_id' => calendar_id,
-      'original_event_id'    => ''  # will fill in after creation
+      'original_event_id'    => ''  # fill in after creation
     }
   )
 
@@ -413,11 +411,9 @@ post '/api/create_event' do
 
   result = service.insert_event(calendar_id, event)
 
-  # Fill in original_event_id after creation
+  # Fill in original_event_id
   event_id = result.id
   event.extended_properties.private['original_event_id'] = event_id
-
-  # Update event with the new original_event_id
   service.update_event(calendar_id, event_id, event)
 
   # Update local data
@@ -511,15 +507,10 @@ def create_linked_events_if_needed(original_cal_id, original_event_id, start_tim
         )
       end
     end
-  else
-    # normal => do nothing
   end
 end
 
 def create_linked_event(original_cal_id, original_event_id, linked_cal_id, start_time, end_time, title, attendees, creator_email, service, description)
-  # ------------------------------------------------------
-  # CHANGED: We'll add " - [linked]" to the summary:
-  # ------------------------------------------------------
   linked_name = $rooms_data[linked_cal_id][:calendar_info][:summary] rescue 'Linked Room'
 
   link_props = Google::Apis::CalendarV3::Event::ExtendedProperties.new(
@@ -558,25 +549,21 @@ def find_calendar_id_by_summary(summary_name)
 end
 
 # -------------------------------------------------
-# UPDATE EVENT (now allows time changes)
+# UPDATE EVENT (allows time changes)
 # -------------------------------------------------
 put '/api/update_event' do
   request_data   = JSON.parse(request.body.read)
   calendar_id    = request_data['calendarId']
   event_id       = request_data['eventId']
   title          = request_data['title']
-  # Ensure participants is at least an empty array if missing
   participants   = request_data['participants'] || []
   description    = request_data['description'] || ""
 
-  # Optional new start/end for time changes
   new_start_time_str = request_data['start']
   new_end_time_str   = request_data['end']
 
-  # Basic field checks
   halt 400, { error: 'Missing fields' }.to_json unless calendar_id && event_id && title
 
-  # Must be logged in
   user_email = session[:user_email]
   halt 401, { error: 'Unauthorized' }.to_json unless user_email
 
@@ -584,34 +571,28 @@ put '/api/update_event' do
   service.authorization = load_organizer_credentials
 
   existing_event = service.get_event(calendar_id, event_id)
+  priv_props     = existing_event.extended_properties&.private || {}
 
-  # Extended properties for checking if it's linked, or who the creator is
-  priv_props = existing_event.extended_properties&.private || {}
   is_linked     = (priv_props['is_linked'] == 'true')
   creator_email = priv_props['creator_email']
 
-  # If it's a linked event => block editing
   if is_linked
     halt 403, { error: 'Cannot edit a linked event directly. Edit the original event.' }.to_json
   end
 
-  # Check permissions: either user is in attendees or the creator
   all_attendees = (existing_event.attendees || []).map(&:email)
   unless all_attendees.include?(user_email) || (creator_email == user_email)
     halt 403, { error: 'You do not have permission to update this event' }.to_json
   end
 
-  # If new start/end provided, do overlap checks, etc.
   if new_start_time_str && new_end_time_str
     start_time_utc = Time.parse(new_start_time_str).utc
     end_time_utc   = Time.parse(new_end_time_str).utc
 
-    # Reject if start is in the past
     if start_time_utc < Time.now.utc
       halt 400, { error: 'Cannot set event start time in the past.' }.to_json
     end
 
-    # Overlap check
     if events_overlap?(calendar_id, start_time_utc, end_time_utc, event_id)
       halt 409, { error: 'Time slot overlaps an existing event' }.to_json
     end
@@ -620,26 +601,21 @@ put '/api/update_event' do
     existing_event.end.date_time   = end_time_utc.iso8601
   end
 
-  # Combine participants + [creator_email], remove nil, strip whitespace, remove empty
   updated_attendees_emails = (participants + [creator_email])
                               .compact
                               .map(&:strip)
                               .reject(&:empty?)
                               .uniq
 
-  # Update the event object with new data
   existing_event.summary     = title
   existing_event.description = description
   existing_event.attendees   = updated_attendees_emails.map { |em| { email: em } }
 
-  # Optionally update location to match the room's summary
   new_location = $rooms_data[calendar_id][:calendar_info][:summary] rescue 'Updated Room'
   existing_event.location = new_location
 
-  # Send update to Google
   result = service.update_event(calendar_id, event_id, existing_event)
 
-  # Sync linked events if you have that logic (defined elsewhere)
   sync_linked_events(
     calendar_id,
     event_id,
@@ -650,7 +626,6 @@ put '/api/update_event' do
     description
   )
 
-  # Update local cache
   updated_events = fetch_events_for_calendar(calendar_id, service)
   if $rooms_data[calendar_id]
     $rooms_data[calendar_id][:events]       = updated_events
@@ -689,7 +664,6 @@ def sync_linked_events(original_cal_id, original_event_id, new_title, new_attend
       next unless priv['original_calendar_id'] == original_cal_id
       next unless priv['original_event_id']   == original_event_id
 
-      # Keep the " - [linked]" suffix if it already has it
       ev.summary     = new_title.include?(" - [linked]") ? new_title : "#{new_title} - [linked]"
       ev.attendees   = new_attendees.map { |em| { email: em } }
       ev.location    = $rooms_data[cal_id][:calendar_info][:summary] rescue new_location
@@ -721,12 +695,7 @@ delete '/api/delete_event' do
   service.authorization = load_organizer_credentials
 
   event = service.get_event(calendar_id, event_id)
-
-  priv = if event.extended_properties&.private
-           event.extended_properties.private
-         else
-           {}
-         end
+  priv  = event.extended_properties&.private || {}
 
   is_linked     = (priv['is_linked'] == 'true')
   creator_email = priv['creator_email']
@@ -749,7 +718,6 @@ delete '/api/delete_event' do
   end
   $room_update_tracker[calendar_id] += 1
 
-  # Also delete linked events
   delete_linked_events(calendar_id, event_id, service)
 
   content_type :json
@@ -807,7 +775,6 @@ post '/api/freebusy' do
 
   resp = service.query_freebusy(request_obj)
 
-  # Build a simple structure showing the busy intervals
   results = {}
   resp.calendars.each do |cal_id, freebusy_cal|
     busy = freebusy_cal.busy || []
@@ -818,7 +785,7 @@ post '/api/freebusy' do
 end
 
 # -------------------------------------------------
-# Scheduler to Renew Watches
+# SCHEDULER to Renew Watches
 # -------------------------------------------------
 scheduler.every '23h' do
   begin
@@ -838,3 +805,96 @@ end
 
 set :environment, :production
 set :port, PORT
+
+# -------------------------------------------------
+# NEW: MOVE EVENT ACROSS ROOMS
+# -------------------------------------------------
+post '/api/move_event' do
+  request_data = JSON.parse(request.body.read)
+  old_cal_id   = request_data['oldCalendarId']
+  new_cal_id   = request_data['newCalendarId']
+  event_id     = request_data['eventId']
+  title        = request_data['title']
+  start_str    = request_data['start']
+  end_str      = request_data['end']
+  attendees    = request_data['attendees'] || []
+  description  = request_data['description'] || ""
+
+  halt 400, { error: 'Missing required fields' }.to_json unless old_cal_id && new_cal_id && event_id && title
+
+  user_email = session[:user_email]
+  halt 401, { error: 'Unauthorized' }.to_json unless user_email
+
+  service = Google::Apis::CalendarV3::CalendarService.new
+  service.authorization = load_organizer_credentials
+
+  # 1) Fetch old event
+  old_event = service.get_event(old_cal_id, event_id)
+  old_priv  = old_event.extended_properties&.private || {}
+  old_creator = old_priv['creator_email']
+  old_attendees_emails = (old_event.attendees || []).map(&:email)
+
+  # Permission check
+  unless old_attendees_emails.include?(user_email) || old_creator == user_email
+    halt 403, { error: 'You do not have permission to move this event' }.to_json
+  end
+
+  # If it's linked => cannot move directly
+  if old_priv['is_linked'] == 'true'
+    halt 403, { error: 'Cannot move a linked event directly. Move the original event.' }.to_json
+  end
+
+  # 2) Create event in new calendar
+  start_time_utc = Time.parse(start_str).utc
+  end_time_utc   = Time.parse(end_str).utc
+
+  # Overlap check on the new room
+  if events_overlap?(new_cal_id, start_time_utc, end_time_utc, nil)
+    halt 409, { error: 'Time slot overlaps an existing event in the new room' }.to_json
+  end
+
+  new_priv = old_priv.dup  # copy old extended props
+  new_priv['is_linked']            = 'false'
+  new_priv['original_calendar_id'] = new_cal_id
+  new_priv['original_event_id']    = '' # will fill after creation if desired
+
+  new_event_obj = Google::Apis::CalendarV3::Event.new(
+    summary:     title,
+    description: description,
+    start:       Google::Apis::CalendarV3::EventDateTime.new(date_time: start_time_utc.iso8601, time_zone: 'UTC'),
+    end:         Google::Apis::CalendarV3::EventDateTime.new(date_time: end_time_utc.iso8601,   time_zone: 'UTC'),
+    attendees:   attendees.map { |em| { email: em } },
+    extended_properties: Google::Apis::CalendarV3::Event::ExtendedProperties.new(
+      private: new_priv
+    )
+  )
+
+  inserted = service.insert_event(new_cal_id, new_event_obj)
+  new_event_id = inserted.id
+
+  # Optionally store new_event_id in extended props
+  new_priv['original_event_id'] = new_event_id
+  inserted.extended_properties = Google::Apis::CalendarV3::Event::ExtendedProperties.new(private: new_priv)
+  service.update_event(new_cal_id, new_event_id, inserted)
+
+  # 3) Delete from old calendar
+  service.delete_event(old_cal_id, event_id)
+
+  # 4) Update local memory
+  updated_new = fetch_events_for_calendar(new_cal_id, service)
+  if $rooms_data[new_cal_id]
+    $rooms_data[new_cal_id][:events]       = updated_new
+    $rooms_data[new_cal_id][:last_fetched] = Time.now
+    $room_update_tracker[new_cal_id] += 1
+  end
+
+  updated_old = fetch_events_for_calendar(old_cal_id, service)
+  if $rooms_data[old_cal_id]
+    $rooms_data[old_cal_id][:events]       = updated_old
+    $rooms_data[old_cal_id][:last_fetched] = Time.now
+    $room_update_tracker[old_cal_id] += 1
+  end
+
+  content_type :json
+  { status: 'success', newEventId: new_event_id }.to_json
+end

@@ -36,14 +36,13 @@ function initCalendar() {
       right:  'resourceTimeGridDay,timeGridWeek,dayGridMonth'
     },
 
-    // We turn OFF mirror in all views => highlight rectangles
     selectable: true,
     selectMirror: false,
     editable: true,
     eventResizableFromStart: true,
 
     views: {
-      // If you want all highlight-based, no overrides needed
+      // If you want custom view settings, place them here
     },
 
     // Load resources from your rooms
@@ -85,7 +84,6 @@ function initCalendar() {
               ...(ev.extendedProps || {}),
               realCalendarId: roomId
             },
-            // Hide drag handles if linked => not editable
             editable: !isLinked,
             startEditable: !isLinked,
             durationEditable: !isLinked
@@ -131,7 +129,7 @@ function initCalendar() {
       });
     },
 
-    // Simpler "click to create"
+    // "Click to create" fallback
     dateClick(info) {
       const start = info.date;
       const end   = new Date(start.getTime() + 30 * 60 * 1000);
@@ -159,51 +157,48 @@ function initCalendar() {
       });
     },
 
-    eventClick(info) {
-      const calId = info.event.extendedProps?.realCalendarId;
-      if (!calId) return;
-      openViewEventModal(info.event, calId);
-    },
-
     // User dragged an existing event
     eventDrop(info) {
       const event = info.event;
       const newStart = event.start;
       const newEnd   = event.end || new Date(newStart.getTime() + 30 * 60 * 1000);
 
-      // 1) Linked check
+      // If the user is dragging to a new resource (different room) => cross-room move
+      const oldResource = info.oldResource;
+      const newResource = info.newResource;
+
+      // Linked events cannot be moved at all
       if (event.extendedProps?.is_linked) {
-        window.showToast('Error', 'Cannot move or resize a linked event. Please edit the original event.');
+        window.showToast('Error', 'Cannot move a linked event. Edit the original event.');
         info.revert();
         return;
       }
 
-      // 2) Check if new start is still in the past
+      // If user is dragging across different rooms
+      if (oldResource && newResource && oldResource.id !== newResource.id) {
+        // => Move across rooms
+        moveEventAcrossRooms(event, oldResource.id, newResource.id, newStart, newEnd, info);
+        return;
+      }
+
+      // Otherwise => same-room move
       if (newStart < new Date()) {
         window.showToast('Error', 'Cannot move event to a past time.');
         info.revert();
         return;
       }
-
-      // 3) Overlap check
       if (doesOverlap(event, newStart, newEnd)) {
         window.showToast('Error', 'Overlap. Reverting.');
         info.revert();
         return;
       }
 
-      // 4) Proceed with normal update
-      const roomId = event.extendedProps?.realCalendarId;
-      if (!roomId) {
-        info.revert();
-        return;
-      }
-
+      // Same-room => normal update
       window.showSpinner();
       setTimeout(async () => {
         try {
           await updateEvent({
-            calendarId: roomId,
+            calendarId: event.extendedProps?.realCalendarId,
             eventId: event.id,
             title: event.title,
             start: newStart.toISOString(),
@@ -212,7 +207,7 @@ function initCalendar() {
             description: event.extendedProps.description || ""
           });
           window.showToast('Updated', 'Event moved.');
-          await window.resyncSingleRoom(roomId);
+          await window.resyncSingleRoom(event.extendedProps?.realCalendarId);
           window.multiCalendar.refetchEvents();
         } catch (err) {
           window.showError(`Failed: ${err.message}`);
@@ -234,30 +229,21 @@ function initCalendar() {
         return;
       }
 
-      // 1) Linked check
+      // Linked check
       if (event.extendedProps?.is_linked) {
-        window.showToast('Error', 'Cannot move or resize a linked event. Please edit the original event.');
+        window.showToast('Error', 'Cannot resize a linked event. Edit the original event.');
         info.revert();
         return;
       }
 
-      // 2) Check if new start is still in the past
       if (newStart < new Date()) {
-        window.showToast('Error', 'Cannot resize event so that it starts in the past.');
+        window.showToast('Error', 'Cannot resize event to start in the past.');
         info.revert();
         return;
       }
 
-      // 3) Overlap check
       if (doesOverlap(event, newStart, newEnd)) {
         window.showToast('Error', 'Overlap. Reverting.');
-        info.revert();
-        return;
-      }
-
-      // 4) Proceed with normal update
-      const roomId = event.extendedProps?.realCalendarId;
-      if (!roomId) {
         info.revert();
         return;
       }
@@ -266,7 +252,7 @@ function initCalendar() {
       setTimeout(async () => {
         try {
           await updateEvent({
-            calendarId: roomId,
+            calendarId: event.extendedProps?.realCalendarId,
             eventId: event.id,
             title: event.title,
             start: newStart.toISOString(),
@@ -275,7 +261,7 @@ function initCalendar() {
             description: event.extendedProps.description || ""
           });
           window.showToast('Updated', 'Event resized.');
-          await window.resyncSingleRoom(roomId);
+          await window.resyncSingleRoom(event.extendedProps?.realCalendarId);
           window.multiCalendar.refetchEvents();
         } catch (err) {
           window.showError(`Resize failed: ${err.message}`);
@@ -294,9 +280,7 @@ function initCalendar() {
   // Render the calendar
   window.multiCalendar.render();
 
-  // ---------------------------------------------------------
-  // REAL-TIME HIGHLIGHT HACK
-  // ---------------------------------------------------------
+  // "Real-time highlight hack"
   function colorHighlightEls() {
     const highlightEls = document.querySelectorAll('.fc-highlight');
     highlightEls.forEach(highlightEl => {
@@ -316,14 +300,57 @@ function initCalendar() {
 
   const fcContainer = document.querySelector('.fc-view-harness');
   if (fcContainer) {
-    // watch for new highlight elements
     const observer = new MutationObserver(() => {
       colorHighlightEls();
     });
     observer.observe(fcContainer, { childList: true, subtree: true });
 
-    // also re-color on mousemove
     fcContainer.addEventListener('mousemove', colorHighlightEls);
+  }
+
+  // ----------------------------------------------------------------
+  // NEW function to handle cross-room move via /api/move_event
+  // ----------------------------------------------------------------
+  async function moveEventAcrossRooms(event, oldRoomId, newRoomId, newStart, newEnd, info) {
+    window.showSpinner();
+    try {
+      const title         = event.title;
+      const startISO      = newStart.toISOString();
+      const endISO        = newEnd.toISOString();
+      const attendees     = event.extendedProps.attendees || [];
+      const description   = event.extendedProps.description || "";
+
+      // POST to /api/move_event
+      const res = await window.fetchJSON('/api/move_event', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          oldCalendarId: oldRoomId,
+          newCalendarId: newRoomId,
+          eventId:  event.id,
+          title,
+          start:   startISO,
+          end:     endISO,
+          attendees,
+          description
+        })
+      });
+
+      if (res.status === 'success') {
+        // Refresh old & new calendars
+        await window.resyncSingleRoom(oldRoomId);
+        await window.resyncSingleRoom(newRoomId);
+        window.multiCalendar.refetchEvents();
+        window.showToast('Moved', 'Event successfully moved to the new room.');
+      } else {
+        throw new Error(res.error || 'Unknown error moving event');
+      }
+    } catch (err) {
+      window.showError(`Move failed: ${err.message}`);
+      info.revert();
+    } finally {
+      window.hideSpinner();
+    }
   }
 }
 
