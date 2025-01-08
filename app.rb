@@ -862,6 +862,11 @@ post '/api/move_event' do
   start_time_utc = Time.parse(start_str).utc
   end_time_utc   = Time.parse(end_str).utc
 
+  # Additional check: do not allow moving event to a past time
+  if start_time_utc < Time.now.utc
+    halt 400, { error: 'Cannot move event to a past time.' }.to_json
+  end
+
   # Overlap check on the new room
   if events_overlap?(new_cal_id, start_time_utc, end_time_utc, nil)
     halt 409, { error: 'Time slot overlaps an existing event in the new room' }.to_json

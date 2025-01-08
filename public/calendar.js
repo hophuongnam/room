@@ -194,6 +194,11 @@ function initCalendar() {
 
       // If user is dragging across different rooms
       if (oldResource && newResource && oldResource.id !== newResource.id) {
+        if (newStart < new Date()) {
+          window.showToast('Error', 'Cannot move event to a past time.');
+          info.revert();
+          return;
+        }
         // => Move across rooms
         moveEventAcrossRooms(event, oldResource.id, newResource.id, newStart, newEnd, info);
         return;
