@@ -702,6 +702,9 @@ document.addEventListener('DOMContentLoaded', async () => {
       // 5) Populate mini-calendar
       if (window.freeBusyCalendar) {
         window.populateFreeBusyCalendar(window.freeBusyCalendar, freebusyData);
+
+// Render the user-chosen time range as a rectangle
+window.renderTentativeRange(window.freeBusyCalendar, startISO, endISO);
       }
     } catch (err) {
       showError(`Failed to load free/busy: ${err.message}`);

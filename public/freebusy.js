@@ -89,7 +89,34 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
   
-    window.initFreeBusyCalendar       = initFreeBusyCalendar;
-    window.populateFreeBusyCalendar   = populateFreeBusyCalendar;
+    function renderTentativeRange(calendar, startISO, endISO) {
+  // Remove old events from prior calls
+  const oldEvents = calendar.getEvents().filter(e => e.groupId === 'tentativeRange');
+  oldEvents.forEach(e => e.remove());
+
+  // If no start/end or no resources, do nothing
+  if (!startISO || !endISO) return;
+  const resources = calendar.getResources();
+  if (!resources || resources.length === 0) return;
+
+  // For each resource, draw a special event with a colored border
+  resources.forEach(r => {
+    calendar.addEvent({
+      id: 'tentativeRange-' + r.id,
+      groupId: 'tentativeRange',
+      resourceId: r.id,
+      start: startISO,
+      end: endISO,
+      display: 'background',
+      backgroundColor: 'rgba(13, 110, 253, 0.1)',  // light fill
+      borderColor: '#0d6efd',                     // border color
+      classNames: ['tentative-range']             // optional custom CSS
+    });
   });
+}
+
+window.initFreeBusyCalendar       = initFreeBusyCalendar;
+window.populateFreeBusyCalendar   = populateFreeBusyCalendar;
+window.renderTentativeRange       = renderTentativeRange;
+});
   
