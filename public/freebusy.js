@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
         // Do not allow editing or selecting in this mini view
         editable: false,
         selectable: false,
-        resourceOrder: 'title',
+        resourceOrder: null,
         // We'll dynamically add resources & events
         resources: [],
         events: []
@@ -38,17 +38,96 @@ document.addEventListener('DOMContentLoaded', () => {
   
     // POST /api/freebusy call is done in main.js (window.loadFreeBusyData).
     // We'll define that method here, but main.js calls it:
+    // Global cache object
+    if (!window.freeBusyCache) {
+      window.freeBusyCache = {};
+    }
+    
+    // TTL for freebusy cache entries (e.g., 5 minutes)
+    const CACHE_TTL_MS = 5 * 60 * 1000;
+
+    // Helper: compute busy blocks for the specified room from local memory
+    function getLocalRoomBusy(roomId, startISO, endISO) {
+      // If we don't have the events or room doesn't exist, return an empty array
+      if (!window.allEventsMap || !window.allEventsMap[roomId]) return [];
+
+      const events = window.allEventsMap[roomId];
+      const startMs = new Date(startISO).getTime();
+      const endMs   = new Date(endISO).getTime();
+
+      const busySlots = [];
+      // For each event, if it overlaps our range, push it as a busy block
+      for (const ev of events) {
+        if (!ev.start || !ev.end) continue;
+        const evStart = new Date(ev.start).getTime();
+        const evEnd   = new Date(ev.end).getTime();
+        // if event overlaps [startMs, endMs], clamp it to that range
+        if (evEnd > startMs && evStart < endMs) {
+          const busyStart = new Date(Math.max(evStart, startMs)).toISOString();
+          const busyEnd   = new Date(Math.min(evEnd, endMs)).toISOString();
+          busySlots.push({ start: busyStart, end: busyEnd });
+        }
+      }
+      return busySlots;
+    }
+
     async function loadFreeBusyData(emails, startISO, endISO) {
-      const res = await window.fetchJSON('/api/freebusy', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          start: startISO,
-          end: endISO,
-          attendees: emails
-        })
-      });
-      return res.freebusy;  // { email => [ {start, end}, ... ] }
+      // Sort for stable cache key
+      const sortedEmails = [...emails].sort();
+      const cacheKey = JSON.stringify({ start: startISO, end: endISO, emails: sortedEmails });
+
+      // If present in cache, check if it's still valid (TTL)
+      if (window.freeBusyCache[cacheKey]) {
+        const { timestamp, data } = window.freeBusyCache[cacheKey];
+        const now = Date.now();
+        if (now - timestamp < CACHE_TTL_MS) {
+          // Cache entry is still fresh
+          return data;
+        } else {
+          // Expired; remove entry
+          delete window.freeBusyCache[cacheKey];
+        }
+      }
+
+      // Separate out any known room IDs from user emails
+      // (We'll handle the room locally)
+      let roomId = null;
+      let userEmails = [];
+      for (const em of emails) {
+        const maybeRoom = window.rooms?.find(r => r.id === em);
+        if (maybeRoom) {
+          roomId = maybeRoom.id;
+        } else {
+          userEmails.push(em);
+        }
+      }
+
+      // If there's anything in userEmails, call /api/freebusy
+      let serverBusy = {};
+      if (userEmails.length > 0) {
+        const res = await window.fetchJSON('/api/freebusy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            start: startISO,
+            end: endISO,
+            attendees: userEmails
+          })
+        });
+        serverBusy = res.freebusy;  // { email => [ {start, end}, ... ] }
+      }
+
+      // If we have a local room ID, compute local busy for it
+      if (roomId) {
+        serverBusy[roomId] = getLocalRoomBusy(roomId, startISO, endISO);
+      }
+
+      // Cache and return
+      window.freeBusyCache[cacheKey] = {
+        timestamp: Date.now(),
+        data: serverBusy
+      };
+      return serverBusy;
     }
   
     // Insert on window so main.js can invoke it
@@ -65,9 +144,26 @@ document.addEventListener('DOMContentLoaded', () => {
       // 2) Build resources from each email
       const resourceList = [];
       for (const email of Object.keys(freebusyData)) {
-        resourceList.push({ id: email, title: email });
+        // Check if the email matches a known room ID and use the room's summary if found
+        let displayName = email;
+        if (window.rooms && Array.isArray(window.rooms)) {
+          const matchingRoom = window.rooms.find(r => r.id === email);
+          if (matchingRoom) {
+            displayName = matchingRoom.summary;
+          }
+        }
+        resourceList.push({ id: email, title: displayName });
       }
-  
+
+      // Sort so the room's ID (if present) is first
+      if (window.currentFreeBusyCalendarId) {
+        resourceList.sort((a, b) => {
+          if (a.id === window.currentFreeBusyCalendarId) return -1;
+          if (b.id === window.currentFreeBusyCalendarId) return 1;
+          return 0;
+        });
+      }
+
       // 3) Add resources to the calendar
       resourceList.forEach(r => {
         calendar.addResource(r);

@@ -520,8 +520,20 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  window.resyncSingleRoom = async function(roomId) {
-    // Called when the server indicates a specific room changed
+  async function resyncSingleRoom(roomId) {
+    // Invalidate or clear free/busy cache
+    if (window.freeBusyCache) {
+      // Option A: Clear all, simpler
+      window.freeBusyCache = {};
+  
+      // Option B (selective):
+      // for (let key in window.freeBusyCache) {
+      //   if (key.includes(roomId)) {
+      //     delete window.freeBusyCache[key];
+      //   }
+      // }
+    }
+  
     showSpinner();
     try {
       const resp = await fetchJSON(`/api/room_data?calendarId=${encodeURIComponent(roomId)}`);
@@ -685,20 +697,23 @@ document.addEventListener('DOMContentLoaded', async () => {
     const startISO = new Date(startLocal).toISOString();
     const endISO   = new Date(endLocal).toISOString();
 
-    // Gather attendee emails (exclude the room’s calendarId)
+    // Gather attendee emails including the room’s calendarId
     const calendarId = calendarIdField.value;
     const allEmails  = window.inviteChips.map(c => c.email);
-    const filtered   = allEmails.filter(em => em !== calendarId);
+    const finalAttendees = [calendarId, ...allEmails].filter(Boolean);
 
-    if (filtered.length === 0) {
-      showError("No attendees chosen. Please add at least one attendee to see free/busy times.");
+    // Store for resource reordering in freebusy.js
+    window.currentFreeBusyCalendarId = calendarId;
+
+    if (finalAttendees.length === 0) {
+      showError("No attendees nor room selected. Please add at least one attendee or room.");
       return;
     }
 
     // 4) Call /api/freebusy
     try {
       showSpinner();
-      const freebusyData = await window.loadFreeBusyData(filtered, startISO, endISO);
+      const freebusyData = await window.loadFreeBusyData(finalAttendees, startISO, endISO);
       // 5) Populate mini-calendar
       if (window.freeBusyCalendar) {
         window.populateFreeBusyCalendar(window.freeBusyCalendar, freebusyData);
