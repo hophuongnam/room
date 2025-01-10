@@ -297,23 +297,18 @@ function openEventModal({ calendarId, eventId, title, start, end, attendees, des
   eventIdField.value    = eventId      || '';
   eventTitleField.value = title        || '';
 
-  // If creating a new event => reset chips
+  // Always overwrite the start/end fields with the current event's date/time
   if (!eventId) {
+    // Creating => reset chips
     window.inviteChips = [];
     window.clearChipsUI();
-    if (start) eventStartField.value = window.toLocalDateTimeInput(new Date(start));
-    else       eventStartField.value = '';
-    if (end)   eventEndField.value   = window.toLocalDateTimeInput(new Date(end));
-    else       eventEndField.value   = '';
-  } else {
-    // Editing => ensure start/end fields are filled
-    if (!eventStartField.value && start) {
-      eventStartField.value = window.toLocalDateTimeInput(new Date(start));
-    }
-    if (!eventEndField.value && end) {
-      eventEndField.value = window.toLocalDateTimeInput(new Date(end));
-    }
   }
+
+  // Overwrite date/time fields
+  if (start) eventStartField.value = window.toLocalDateTimeInput(new Date(start));
+  else       eventStartField.value = '';
+  if (end)   eventEndField.value = window.toLocalDateTimeInput(new Date(end));
+  else       eventEndField.value = '';
 
   // Pre-populate chips if editing
   if (attendees && attendees.length > 0) {
