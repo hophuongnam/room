@@ -201,6 +201,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const eventModalDialog = document.getElementById('eventModalDialog');
   const locationTabBtn   = document.getElementById('location-tab');
   const blankTabBtn      = document.getElementById('blank-tab');
+  const blankPane        = document.getElementById('blank');
   const originalDialogClasses = eventModalDialog ? eventModalDialog.className : '';
 
   if (locationTabBtn && blankTabBtn && eventModalDialog) {
@@ -641,6 +642,21 @@ document.addEventListener('DOMContentLoaded', async () => {
      14) "Find a time" tab => free/busy logic
   ------------------------------------------------------------------ */
   blankTabBtn?.addEventListener('shown.bs.tab', async () => {
+    await refreshFreeBusyCalendar();
+  });
+
+  eventStartField.addEventListener('change', async () => {
+    if (blankPane.classList.contains('show', 'active')) {
+      await refreshFreeBusyCalendar();
+    }
+  });
+  eventEndField.addEventListener('change', async () => {
+    if (blankPane.classList.contains('show', 'active')) {
+      await refreshFreeBusyCalendar();
+    }
+  });
+
+  async function refreshFreeBusyCalendar() {
     // 1) Initialize the freeBusyCalendar if not done yet
     if (!window.freeBusyCalendarInited) {
       window.initFreeBusyCalendar(); // from freebusy.js
@@ -676,15 +692,18 @@ document.addEventListener('DOMContentLoaded', async () => {
       const freebusyData = await window.loadFreeBusyData(finalAttendees, startISO, endISO);
       // 5) Populate mini-calendar
       if (window.freeBusyCalendar) {
+        // Move the mini-calendar to the same date as "startLocal"
+        window.freeBusyCalendar.gotoDate(new Date(startLocal));
+
         window.populateFreeBusyCalendar(window.freeBusyCalendar, freebusyData);
 
-// Render the user-chosen time range as a rectangle
-window.renderTentativeRange(window.freeBusyCalendar, startISO, endISO);
+        // Render the user-chosen time range as a rectangle
+        window.renderTentativeRange(window.freeBusyCalendar, startISO, endISO);
       }
     } catch (err) {
       showError(`Failed to load free/busy: ${err.message}`);
     } finally {
       hideSpinner();
     }
-  });
+  }
 });
