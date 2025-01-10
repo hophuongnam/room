@@ -352,65 +352,47 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   /* ------------------------------------------------------------------
      10) Create/Edit Modal => Chips
+     Purely DOM-based approach, no global state.
   ------------------------------------------------------------------ */
-  window.inviteChips = [];
 
-  function clearChipsUI() {
-    eventGuestsContainer.querySelectorAll('.chip').forEach(ch => ch.remove());
+  function createChipElement(email) {
+    const chipEl = document.createElement('span');
+    chipEl.className = 'chip badge bg-secondary me-1';
+    chipEl.textContent = email;
+
+    const removeBtn = document.createElement('button');
+    removeBtn.type = 'button';
+    removeBtn.className = 'btn-close btn-close-white btn-sm ms-2';
+    removeBtn.style.float = 'right';
+    removeBtn.style.filter = 'invert(1)';
+    removeBtn.addEventListener('click', () => {
+      chipEl.remove();
+    });
+
+    chipEl.appendChild(removeBtn);
+    eventGuestsContainer.appendChild(chipEl);
   }
 
-  function renderChipsUI() {
-    clearChipsUI();
-    window.inviteChips.forEach(chip => {
-      const chipEl = document.createElement('span');
-      chipEl.className = 'chip badge bg-secondary me-1';
-      chipEl.textContent = chip.label;
-
-      const removeBtn = document.createElement('button');
-      removeBtn.type = 'button';
-      removeBtn.className = 'btn-close btn-close-white btn-sm ms-2';
-      removeBtn.style.float = 'right';
-      removeBtn.style.filter = 'invert(1)';
-      removeBtn.addEventListener('click', () => {
-        window.inviteChips = window.inviteChips.filter(c => c !== chip);
-        renderChipsUI();
-      });
-
-      chipEl.appendChild(removeBtn);
-      eventGuestsContainer.appendChild(chipEl);
+  function buildChipsFromAttendees(attendees) {
+    // Clear existing
+    eventGuestsContainer.querySelectorAll('.chip').forEach(chip => chip.remove());
+    // Build new chips
+    attendees.forEach(email => {
+      createChipElement(email);
     });
   }
 
-  function addChip({ label, email }) {
-    const existing = window.inviteChips.find(ch => ch.email === email);
-    if (!existing) {
-      window.inviteChips.push({ label, email });
-    }
+  function getAttendeesFromChips() {
+    const chips = eventGuestsContainer.querySelectorAll('.chip');
+    return Array.from(chips).map(ch => ch.textContent.replace(/×$/, '').trim());
   }
 
-  function isValidEmail(str) {
-    const re = /^[^\s@]+@[^\s@]+$/;
-    return re.test(str);
-  }
+  // Attach them to window for global usage
+  window.createChipElement = createChipElement;
+  window.buildChipsFromAttendees = buildChipsFromAttendees;
+  window.getAttendeesFromChips = getAttendeesFromChips;
 
-  function resolveUserToken(token) {
-    const lowerToken = token.toLowerCase();
-    let found = prefetchedUsers.find(u => u.email && u.email.toLowerCase() === lowerToken);
-    if (found) {
-      const label = found.name ? `${found.name} <${found.email}>` : found.email;
-      return { label, email: found.email };
-    }
-    found = prefetchedUsers.find(u => (u.name && u.name.toLowerCase() === lowerToken));
-    if (found) {
-      const label = found.name ? `${found.name} <${found.email}>` : found.email;
-      return { label, email: found.email };
-    }
-    if (isValidEmail(token)) {
-      return { label: token, email: token };
-    }
-    return null;
-  }
-
+  // Simple typeahead
   let typeaheadDiv;
   eventGuestsInput.addEventListener('input', (e) => {
     const val = e.target.value.toLowerCase().trim();
@@ -421,11 +403,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!val) return;
 
     const matches = prefetchedUsers.filter(u =>
-      u.email.toLowerCase().includes(val) ||
+      (u.email && u.email.toLowerCase().includes(val)) ||
       (u.name && u.name.toLowerCase().includes(val))
     ).slice(0, 5);
 
     if (matches.length === 0) return;
+
     typeaheadDiv = document.createElement('div');
     typeaheadDiv.className = 'list-group position-absolute';
     typeaheadDiv.style.zIndex = '9999';
@@ -435,14 +418,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       const item = document.createElement('button');
       item.type = 'button';
       item.className = 'list-group-item list-group-item-action';
-      item.textContent = `${user.name} <${user.email}>`;
+      item.textContent = user.name ? `${user.name} <${user.email}>` : user.email;
 
       item.onclick = () => {
-        addChip({
-          label: item.textContent,
-          email: user.email
-        });
-        renderChipsUI();
+        createChipElement(user.email);
         eventGuestsInput.value = '';
         typeaheadDiv.remove();
         typeaheadDiv = null;
@@ -459,29 +438,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       e.preventDefault();
       const raw = eventGuestsInput.value.trim();
       if (raw) {
-        processRawToken(raw);
+        createChipElement(raw);
+        eventGuestsInput.value = '';
       }
     }
   });
-
-  function processRawToken(raw) {
-    const tokens = raw.split(',').map(t => t.trim()).filter(Boolean);
-    tokens.forEach(tok => {
-      const chipData = resolveUserToken(tok);
-      if (!chipData) {
-        showError(`"${tok}" is not recognized as a user or valid email address.`);
-        return;
-      }
-      addChip(chipData);
-    });
-    eventGuestsInput.value = '';
-    renderChipsUI();
-  }
-
-  window.clearChipsUI    = clearChipsUI;
-  window.renderChipsUI   = renderChipsUI;
-  window.addChip         = addChip;
-  window.processRawToken = processRawToken;
 
   /* ------------------------------------------------------------------
      11) Polling for Room & User Updates
@@ -591,7 +552,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const descriptionEl = document.getElementById('eventDescription');
     const description   = descriptionEl ? descriptionEl.value.trim() : "";
-    const participants  = window.inviteChips.map(c => c.email);
+    const participants  = getAttendeesFromChips();
 
     if (!calendarId || !title || !startUTC || !endUTC) {
       showError('Please fill out required fields (room, title, start, end).');
@@ -699,8 +660,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     // Gather attendee emails including the room’s calendarId
     const calendarId = calendarIdField.value;
-    const allEmails  = window.inviteChips.map(c => c.email);
-    const finalAttendees = [calendarId, ...allEmails].filter(Boolean);
+    const finalAttendees = [calendarId, ...getAttendeesFromChips()].filter(Boolean);
 
     // Store for resource reordering in freebusy.js
     window.currentFreeBusyCalendarId = calendarId;

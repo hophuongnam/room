@@ -238,9 +238,7 @@ function openEventModal({ calendarId, eventId, title, start, end, attendees, des
     eventIdField,
     eventTitleField,
     eventStartField,
-    eventEndField,
-    inviteChips,
-    prefetchedUsers
+    eventEndField
   } = window;
 
   const eventRoomSelect       = document.getElementById('eventRoomSelect');
@@ -301,7 +299,6 @@ function openEventModal({ calendarId, eventId, title, start, end, attendees, des
   if (!eventId) {
     // Creating => reset chips
     window.inviteChips = [];
-    window.clearChipsUI();
   }
 
   // Overwrite date/time fields
@@ -310,23 +307,11 @@ function openEventModal({ calendarId, eventId, title, start, end, attendees, des
   if (end)   eventEndField.value = window.toLocalDateTimeInput(new Date(end));
   else       eventEndField.value = '';
 
-  // Pre-populate chips if editing
+  // Pre-populate chips in DOM if editing
   if (attendees && attendees.length > 0) {
-    attendees.forEach(email => {
-      const existing = inviteChips.find(ch => ch.email === email);
-      if (!existing) {
-        const userObj = prefetchedUsers?.find(u => u.email === email);
-        if (userObj) {
-          window.addChip({
-            label: userObj.name ? `${userObj.name} <${userObj.email}>` : userObj.email,
-            email: userObj.email
-          });
-        } else {
-          window.addChip({ label: email, email });
-        }
-      }
-    });
-    window.renderChipsUI();
+    buildChipsFromAttendees(attendees);
+  } else {
+    buildChipsFromAttendees([]);
   }
 
   if (!eventId || !eventDescriptionField.value) {
